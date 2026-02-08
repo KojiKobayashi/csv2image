@@ -12,11 +12,13 @@ def csv_to_image(csv_file1, csv_file2, output_filename):
     if min(data1.shape) <= 1:
         raise ValueError("csv_file1 must represent a 2D image.")
 
-    # csv_file2は、4カラム。一カラム目がピクセルのインデックス、二カラム目以降がそのピクセルのRGB値を示す。
+    # csv_file2は、3カラム。ピクセルのRGB値を示す。
     data2 = np.loadtxt(csv_file2, delimiter=',', dtype=np.uint8)
-    
-    # data2をインデックスとRGBのハッシュに変換
-    index_to_rgb = {row[0]: row[1:4] for row in data2}
+
+    # data2を行番号をインデックス、RGB値を要素とするハッシュに変換
+    index_to_rgb = {}
+    for i, row in enumerate(data2):
+        index_to_rgb[i+1] = row.tolist()  # インデックスは1始まりと仮定
 
     # data1の各ピクセルに対応するRGB値を取得し、カラー画像を作成
     height, width = data1.shape

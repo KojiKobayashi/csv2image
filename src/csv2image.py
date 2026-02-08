@@ -38,13 +38,14 @@ def csv_to_image(csv_file1, csv_file2, output_filename):
     line_thickness = cfg.line_thickness
     thick_line_thickness = cfg.thick_line_thickness
     thick_line_interval = cfg.thick_line_interval
+    background_color = cfg.cell_line_color
 
     if thick_line_interval <= 0:
         raise ValueError("thick_line_interval must be a positive integer.")
 
     out_height = height * cell_height + (height // thick_line_interval) * (thick_line_thickness - line_thickness) + (height - 1) * line_thickness
     out_width = width * cell_width + (width // thick_line_interval) * (thick_line_thickness - line_thickness) + (width - 1) * line_thickness
-    output_image = np.zeros((out_height, out_width, 3), dtype=np.uint8)
+    output_image = np.full((out_height, out_width, 3), background_color, dtype=np.uint8)
     for i in range(height):
         for j in range(width):
             start_y = i * (cell_height + line_thickness) + (i // thick_line_interval) * (thick_line_thickness - line_thickness)

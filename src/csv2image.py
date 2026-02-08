@@ -32,7 +32,7 @@ def csv_to_image(csv_file1, csv_file2, output_filename):
                 color_image[i, j] = default_color
     
     # 出力用画像に変換
-    # 1ピクセルは27×33ピクセルに拡大。拡大したピクセルをセルと呼ぶ。
+    # 1ピクセルは33×27ピクセルに拡大。拡大したピクセルをセルと呼ぶ。
     # セルの間は1ピクセルの黒線で区切る。さらに黒線は5セルごとに3ピクセルの太さになる。
     cell_height, cell_width = cfg.cell_height, cfg.cell_width
     line_thickness = cfg.line_thickness

@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import sys
 
 import settings as cfg
 
@@ -110,7 +111,12 @@ def run(filen_name):
 
 # 引数でファイル名を受け取る
 if __name__ == "__main__":
-    pixels, centers = run("C:\\Users\\jirih\\OneDrive\\Pictures\\blackandblue.jpg")
+    # 第一引数から画像パス取得
+    if len(sys.argv) < 2:
+        raise ValueError("Usage: python image2cells.py <image_path>")
+    file_path = sys.argv[1]
+
+    pixels, centers = run(file_path)
     cv2.imwrite("output_pixelized.png", pixels)
     print("Centers:", centers)
 

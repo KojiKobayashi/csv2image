@@ -92,11 +92,7 @@ def imageToPixelize(image):
     return output_image
 
 
-def run(filen_name):
-    src = cv2.imread(filen_name)
-    if src is None:
-        raise ValueError("Image not found or unable to load.")
-
+def run_image(src):
     resize = _resize_image_2slim(src)
     median, centers = _median_cut(resize)
     noise = _remove_noise(median)
@@ -108,6 +104,74 @@ def run(filen_name):
     pixel = imageToPixelize(dst)
 
     return pixel, centers
+
+def run(filen_name):
+    src = cv2.imread(filen_name)
+    if src is None:
+        raise ValueError("Image not found or unable to load.")
+
+    return run_image(src)
+
+# def create_processing_image():
+#     '''
+#     1.UIからユーザーに画像を選択させる
+#     2.選択された画像を表示
+#     3.画像上でユーザーに矩形を一つ囲わせる
+#     4.囲まれた矩形部分を切り出し、run関数に渡して処理を行う
+#     '''
+#     # 1. UIからユーザーに画像を選択させる
+#     from tkinter import Tk
+#     from tkinter import filedialog
+#     root = Tk()
+#     root.withdraw()  # メインウィンドウを表示しない
+#     file_path = filedialog.askopenfilename(title="画像を選択してください", filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff")])
+#     root.destroy()
+#     if not file_path:
+#         raise ValueError("No file selected.")
+    
+#     # 2. 選択された画像を表示
+#     src = cv2.imread(file_path)
+#     if src is None:
+#         raise ValueError("Image not found or unable to load.")
+
+#     # 3. rootのメインウィンドウに画像を表示して、画像上でユーザーに矩形を一つ囲ませる
+#     r = cv2.selectROI("Select ROI", src, fromCenter=False, showCrosshair=True)
+#     cv2.destroyWindow("Select ROI")
+#     if r == (0,0,0,0):
+#         r = (0, 0, src.shape[1], src.shape[0])  # 全体を選択したことにする
+#     roi = src[int(r[1]):int(r[1]+r[3]), int(r[0]):int(r[0]+r[2])]
+
+#     # UI作成
+#     from tkinter import simpledialog, Canvas, Scrollbar
+#     root = Tk()
+#     canvas = Canvas(
+#         root,
+#         width=400,
+#         height=300,
+#     )
+#     canvas.pack()
+
+#     display_image(roi)
+
+#     # canvasにroiを表示
+#     roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+#     roi_byte = cv2.imencode('.png', roi_rgb)[1].tobytes()
+
+#     canvas.create_image(0, 0, anchor='nw', image=roi_byte)
+#     canvas.config(scrollregion=canvas.bbox("all"))
+
+#     scrollbar = Scrollbar(root, command=canvas.yview)
+#     scrollbar.pack(side='right', fill='y')
+
+
+#     display_image(roi)
+    
+#     root.destroy()
+
+
+#     # for debug
+#     cv2.rectangle(src, (int(r[0]), int(r[1])), (int(r[0]+r[2]), int(r[1]+r[3])), (0,255,0), 2)
+#     display_image(src)
 
 # 引数でファイル名を受け取る
 if __name__ == "__main__":
@@ -121,3 +185,5 @@ if __name__ == "__main__":
     print("Centers:", centers)
 
     display_image(pixels)
+
+    #create_processing_image()

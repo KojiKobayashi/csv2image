@@ -4,3 +4,6 @@ thick_line_thickness = 3    # 太い区切り線の太さ
 thick_line_interval = 5  # 太い区切り線を入れる間隔（セル数）
 no_index_color = [0, 0, 0]  # インデックスが存在しない場合のデフォルトカラー(BGR)
 cell_line_color = [0, 0, 0]  # 区切り線の色　(BGR)
+number_of_colors = 8  # 量子化する色数
+number_of_line_cells = 100  # 画像を横に分割するセル数
+denoise = False

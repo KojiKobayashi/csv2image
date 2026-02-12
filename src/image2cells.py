@@ -10,13 +10,15 @@ thick_line_thickness = cfg.thick_line_thickness
 thick_line_interval = cfg.thick_line_interval
 background_color = cfg.cell_line_color
 colors_number = cfg.number_of_colors
+number_of_line_cells = cfg.number_of_line_cells
 denoise = cfg.denoise
 
-
-# ノイズ除去　3×3のメディアンフィルタ
+# TODO: idx 画像でのみ可能
+# ノイズ除去　3×3のopening
 def _remove_noise(image):
-    denoised_image = cv2.medianBlur(image, 3)
-    return denoised_image
+    # denoised_image = cv2.morphologyEx(image, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    # return denoised_image
+    return image
 
 # メディアンカット法で色削減
 def _median_cut(image):
@@ -91,19 +93,111 @@ def imageToPixelize(image):
 
     return output_image
 
+# csv読み込み
+# 系統,色番,R,G,B,コメント
+# 一行目はヘッダー
+def load_color_csv(file_path):
+    colors = []
+    with open(file_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+        for line in lines[1:]:
+            parts = line.strip().split(',')
+            if len(parts) != 6:
+                continue
+            system, color_number, r, g, b, _ = parts
+            rgb = [int(r), int(g), int(b)]
+            colors.append(({"type": system, "color_number": color_number, "RGB": rgb}))
+    return colors
+
+def nearest_color(target_rgb, color_list):
+    min_distance = float('inf')
+    nearest = None
+    for color in color_list:
+        r, g, b = color["RGB"]
+        distance = (float(target_rgb[0]) - float(r)) ** 2
+        distance += (float(target_rgb[1]) - float(g)) ** 2
+        distance += (float(target_rgb[2]) - float(b)) ** 2
+        if distance < min_distance:
+            min_distance = distance
+            nearest = color
+    return nearest
+
+def map_colors_to_palette(centers, palette):
+    mapped_colors = []
+    for center in centers:
+        nearest = nearest_color(list(reversed(center)), palette)
+        mapped_colors.append(nearest)
+    return mapped_colors
+
+def count_color_pixels(grey):
+    color_counts = {}
+    height, width = grey.shape[:2]
+    for i in range(height):
+        for j in range(width):
+            idx = grey[i, j]
+            if idx in color_counts:
+                color_counts[idx] += 1
+            else:
+                color_counts[idx] = 1
+
+    ret = [0] * len(color_counts)
+    for idx, count in color_counts.items():
+        ret[idx] = count
+    return ret
+
+def map_image_colors_to_palette(image, centers, palette):
+    # 画像をcentersのインデックスの1channel画像に変換
+    grey = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+    for i in range(image.shape[0]):
+        for j in range(image.shape[1]):
+            target_rgb = image[i, j]
+            for idx, center in enumerate(centers):
+                if np.array_equal(target_rgb, center):
+                    grey[i, j] = idx
+                    break
+                grey[i, j] = 255  # centersにない色は255にする
+    
+    # 色ごとの数
+    color_counts = count_color_pixels(grey)
+
+    mapped_colors = map_colors_to_palette(centers, palette)
+    # for idx, color in enumerate(mapped_colors):
+    #     print(f"Center {idx}:  RGB {color['RGB']}, center RGB {list(reversed(centers[idx]))}")
+
+    height, width = grey.shape[:2]
+    mapped_image = np.zeros_like(image)
+    for i in range(height):
+        for j in range(width):
+            idx = grey[i, j]
+            if idx < len(mapped_colors):
+                mapped_image[i, j] = list(reversed(mapped_colors[idx]["RGB"]))
+            else:
+                mapped_image[i, j] = [255, 255, 255]  # centersにない色は白にする
+    return mapped_image, mapped_colors, color_counts
+
 
 def run_image(src):
     resize = _resize_image_2slim(src)
     median, centers = _median_cut(resize)
     noise = _remove_noise(median)
-    dst = _resize_image(noise, 120, src.shape[0], src.shape[1])
+
+    # noise の色数を出力
+    unique_colors = np.unique(median.reshape(-1, median.shape[2]), axis=0)
+    print(f"Number of unique colors after quantization and denoising: {len(unique_colors)}")
+    unique_colors = np.unique(noise.reshape(-1, noise.shape[2]), axis=0)
+    print(f"Number of unique colors after quantization and denoising: {len(unique_colors)}")
+
+    dst = _resize_image(noise, number_of_line_cells, src.shape[0], src.shape[1])
+
+    palette = load_color_csv("data/merinorainbow.csv")
+    mapped_image, mapped_colors, color_counts = map_image_colors_to_palette(dst, centers, palette)
 
     if denoise:
-        dst = _remove_noise(dst)
+        mapped_image = _remove_noise(mapped_image)
 
-    pixel = imageToPixelize(dst)
+    pixel = imageToPixelize(mapped_image)
 
-    return pixel, centers
+    return pixel, centers,  mapped_colors, color_counts
 
 def run(filen_name):
     src = cv2.imread(filen_name)
@@ -112,66 +206,6 @@ def run(filen_name):
 
     return run_image(src)
 
-# def create_processing_image():
-#     '''
-#     1.UIからユーザーに画像を選択させる
-#     2.選択された画像を表示
-#     3.画像上でユーザーに矩形を一つ囲わせる
-#     4.囲まれた矩形部分を切り出し、run関数に渡して処理を行う
-#     '''
-#     # 1. UIからユーザーに画像を選択させる
-#     from tkinter import Tk
-#     from tkinter import filedialog
-#     root = Tk()
-#     root.withdraw()  # メインウィンドウを表示しない
-#     file_path = filedialog.askopenfilename(title="画像を選択してください", filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tiff")])
-#     root.destroy()
-#     if not file_path:
-#         raise ValueError("No file selected.")
-    
-#     # 2. 選択された画像を表示
-#     src = cv2.imread(file_path)
-#     if src is None:
-#         raise ValueError("Image not found or unable to load.")
-
-#     # 3. rootのメインウィンドウに画像を表示して、画像上でユーザーに矩形を一つ囲ませる
-#     r = cv2.selectROI("Select ROI", src, fromCenter=False, showCrosshair=True)
-#     cv2.destroyWindow("Select ROI")
-#     if r == (0,0,0,0):
-#         r = (0, 0, src.shape[1], src.shape[0])  # 全体を選択したことにする
-#     roi = src[int(r[1]):int(r[1]+r[3]), int(r[0]):int(r[0]+r[2])]
-
-#     # UI作成
-#     from tkinter import simpledialog, Canvas, Scrollbar
-#     root = Tk()
-#     canvas = Canvas(
-#         root,
-#         width=400,
-#         height=300,
-#     )
-#     canvas.pack()
-
-#     display_image(roi)
-
-#     # canvasにroiを表示
-#     roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-#     roi_byte = cv2.imencode('.png', roi_rgb)[1].tobytes()
-
-#     canvas.create_image(0, 0, anchor='nw', image=roi_byte)
-#     canvas.config(scrollregion=canvas.bbox("all"))
-
-#     scrollbar = Scrollbar(root, command=canvas.yview)
-#     scrollbar.pack(side='right', fill='y')
-
-
-#     display_image(roi)
-    
-#     root.destroy()
-
-
-#     # for debug
-#     cv2.rectangle(src, (int(r[0]), int(r[1])), (int(r[0]+r[2]), int(r[1]+r[3])), (0,255,0), 2)
-#     display_image(src)
 
 # 引数でファイル名を受け取る
 if __name__ == "__main__":
@@ -180,9 +214,11 @@ if __name__ == "__main__":
         raise ValueError("Usage: python image2cells.py <image_path>")
     file_path = sys.argv[1]
 
-    pixels, centers = run(file_path)
+    pixels, centers, mapped_colors, color_counts = run(file_path)
     cv2.imwrite("output_pixelized.png", pixels)
     print("Centers:", centers)
+    print("mapped_colors:", mapped_colors)
+    print("Color Counts:", color_counts)
 
     display_image(pixels)
 

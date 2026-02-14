@@ -13,12 +13,15 @@ colors_number = cfg.number_of_colors
 number_of_line_cells = cfg.number_of_line_cells
 denoise = cfg.denoise
 
-# TODO: idx 画像でのみ可能
+def _remove_noise_ori(image):
+    return image
+
+# TODO: 強すぎるのであまりやらないほうがいい
 # ノイズ除去　3×3のopening
 def _remove_noise(image):
-    # denoised_image = cv2.morphologyEx(image, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    # return denoised_image
-    return image
+    denoised_image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    #denoised_image = cv2.morphologyEx(image, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    return denoised_image
 
 # メディアンカット法で色削減
 def _median_cut(image):
@@ -37,7 +40,7 @@ def _median_cut(image):
     centers = np.uint8(centers)
     quantized_image = centers[labels.flatten()]
     quantized_image = quantized_image.reshape((image.shape))
-    return quantized_image, centers
+    return quantized_image, labels.reshape((image.shape[0], image.shape[1])), centers
 
 
 # 縦横比を保って画像をリサイズ
@@ -49,6 +52,8 @@ def _resize_image(image, new_width, src_height, src_width):
     new_height = int(src_height * resize_ratio)
     new_size = (new_width, new_height)
     print(f"Resizing image to: {new_size}, original size: ({src_width}, {src_height})")
+
+    # ない色は作らないように最近傍補間
     resized_image = cv2.resize(image, new_size, interpolation=cv2.INTER_NEAREST)
     return resized_image
 
@@ -142,12 +147,16 @@ def count_color_pixels(grey):
 
     ret = [0] * len(color_counts)
     for idx, count in color_counts.items():
+        # TODO: remove
+        if idx >= len(ret):
+            continue
         ret[idx] = count
     return ret
 
-def map_image_colors_to_palette(image, centers, palette):
+def map_image_to_center_color(image, centers):
     # 画像をcentersのインデックスの1channel画像に変換
     grey = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
+
     for i in range(image.shape[0]):
         for j in range(image.shape[1]):
             target_rgb = image[i, j]
@@ -156,30 +165,30 @@ def map_image_colors_to_palette(image, centers, palette):
                     grey[i, j] = idx
                     break
                 grey[i, j] = 255  # centersにない色は255にする
-    
-    # 色ごとの数
-    color_counts = count_color_pixels(grey)
+    return grey
 
-    mapped_colors = map_colors_to_palette(centers, palette)
-    # for idx, color in enumerate(mapped_colors):
-    #     print(f"Center {idx}:  RGB {color['RGB']}, center RGB {list(reversed(centers[idx]))}")
+def map_image_colors_to_palette_2(label_image, mapped_colors):
+    height, width = label_image.shape[:2]
+    mapped_image = np.zeros((height, width, 3), dtype=np.uint8)
 
-    height, width = grey.shape[:2]
-    mapped_image = np.zeros_like(image)
     for i in range(height):
         for j in range(width):
-            idx = grey[i, j]
+            idx = label_image[i, j]
             if idx < len(mapped_colors):
                 mapped_image[i, j] = list(reversed(mapped_colors[idx]["RGB"]))
             else:
                 mapped_image[i, j] = [255, 255, 255]  # centersにない色は白にする
-    return mapped_image, mapped_colors, color_counts
+    return mapped_image
 
 
 def run_image(src):
     resize = _resize_image_2slim(src)
-    median, centers = _median_cut(resize)
-    noise = _remove_noise(median)
+    median, labels, centers = _median_cut(resize)
+    
+    # labels を uint8 に変換して表示
+    labels = labels.astype(np.uint8)
+
+    noise = _remove_noise_ori(median)
 
     # noise の色数を出力
     unique_colors = np.unique(median.reshape(-1, median.shape[2]), axis=0)
@@ -190,12 +199,22 @@ def run_image(src):
     dst = _resize_image(noise, number_of_line_cells, src.shape[0], src.shape[1])
 
     palette = load_color_csv("data/merinorainbow.csv")
-    mapped_image, mapped_colors, color_counts = map_image_colors_to_palette(dst, centers, palette)
+
+    # 代表色のインデックスで画像を作る
+    label_image = map_image_to_center_color(dst, centers)
+
+    # centersをパレットの色にマッピング
+    mapped_colors = map_colors_to_palette(centers, palette)
 
     if denoise:
-        mapped_image = _remove_noise(mapped_image)
+        label_image = _remove_noise(label_image)
 
-    pixel = imageToPixelize(mapped_image)
+    # 色ごとの数
+    color_counts = count_color_pixels(label_image)
+
+    ret = map_image_colors_to_palette_2(label_image, mapped_colors)
+
+    pixel = imageToPixelize(ret)
 
     return pixel, centers,  mapped_colors, color_counts
 

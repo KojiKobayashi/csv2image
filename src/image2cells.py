@@ -119,11 +119,12 @@ class ImageToPixels:
         if labels is None or centers is None:
             raise ValueError("K-means clustering failed to produce labels or centers.")
         
-        centers = np.uint8(centers) 
+        # centers = np.uint8(centers) 
         centers = centers.reshape(-1, 3)
         centers[:, 0] = centers[:, 0] * (255.0 / 100.0)  # L を0~255に戻す
-        centers = cv2.cvtColor(centers.reshape(1, -1, 3), cv2.COLOR_LAB2BGR).reshape(-1, 3)
         centers = np.uint8(centers)
+        centers = cv2.cvtColor(centers.reshape(1, -1, 3), cv2.COLOR_LAB2BGR).reshape(-1, 3)
+        #centers = np.uint8(centers)
         
         quantized_image = centers[labels.flatten()]
         quantized_image = quantized_image.reshape((image.shape))
@@ -170,6 +171,7 @@ class ImageToPixels:
 
         return output_image
 
+    
     # ==================== Public Methods ====================
     def run(self, filename):
         """画像ファイルを読み込んで処理を実行"""
@@ -183,19 +185,21 @@ class ImageToPixels:
         labels = labels.astype(np.uint8)
         noise = self._remove_noise_ori(median)
 
-        unique_colors = np.unique(median.reshape(-1, median.shape[2]), axis=0)
-        print(f"Number of unique colors after quantization and denoising: {len(unique_colors)}")
-        unique_colors = np.unique(noise.reshape(-1, noise.shape[2]), axis=0)
-        print(f"Number of unique colors after quantization and denoising: {len(unique_colors)}")
+        # unique_colors = np.unique(median.reshape(-1, median.shape[2]), axis=0)
+        # print(f"Number of unique colors after quantization and denoising: {len(unique_colors)}")
+        # unique_colors = np.unique(noise.reshape(-1, noise.shape[2]), axis=0)
+        # print(f"Number of unique colors after quantization and denoising: {len(unique_colors)}")
 
         dst = self._resize_image(noise, self._number_of_line_cells, noise.shape[0], noise.shape[1])
+
+        label_image = _map_image_to_center_color(dst, centers)
+
+        if self._denoise:
+            label_image = self._remove_noise(label_image)
 
         palette = _load_color_csv("data/merinorainbow.csv")
         label_image = _map_image_to_center_color(dst, centers)
         mapped_colors = _map_colors_to_palette(centers, palette)
-
-        if self._denoise:
-            label_image = self._remove_noise(label_image)
 
         ret = _map_image_colors_to_palette_2(label_image, mapped_colors)
         pixel = self._image_to_pixelize(ret)

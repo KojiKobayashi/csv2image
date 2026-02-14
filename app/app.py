@@ -62,7 +62,7 @@ def main():
         
         with col1:
             st.subheader("元画像")
-            st.image(src_image, use_column_width=True, channels="BGR")
+            st.image(src_image, use_container_width=True, channels="BGR")
 
         # 処理ボタン
         if st.button("🚀 処理実行", use_container_width=True, type="primary"):
@@ -92,7 +92,6 @@ def main():
                     st.session_state.result_pixel = pixel
                     st.session_state.centers = centers
                     st.session_state.color_counts = color_counts
-
                     st.success("処理完了！")
 
                 except Exception as e:
@@ -102,7 +101,7 @@ def main():
         if "result_pixel" in st.session_state:
             with col2:
                 st.subheader("処理結果")
-                st.image(st.session_state.result_pixel, use_column_width=True, channels="BGR")
+                st.image(st.session_state.result_pixel, use_container_width=True, channels="BGR")
 
             # 詳細情報の表示
             st.markdown("---")

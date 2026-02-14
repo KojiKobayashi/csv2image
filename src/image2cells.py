@@ -23,18 +23,31 @@ def _remove_noise(image):
     #denoised_image = cv2.morphologyEx(image, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     return denoised_image
 
+
 # メディアンカット法で色削減
 def _median_cut(image):
-    z = image.reshape((-1, 3))
-    z = np.float32(z)
+    # L*a*b*空間でクラスタリングするために色空間を変換
+    lab_image = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+
+    # L のレンジを0~100に正規化
+    z = np.float32(lab_image)
+    z = z.reshape(-1, 3)
+    z[:, 0] = z[:, 0] * (100.0 / 255.0)  # L を0~100に正規化
     
     # Define criteria and apply kmeans()
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
     k = colors_number  # Number of colors
     
-    _, labels, centers = cv2.kmeans(z, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+    bestLabels = np.empty((z.shape[0], 1), dtype=np.int32)
+    _, labels, centers = cv2.kmeans(z, k, bestLabels, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
     if labels is None or centers is None:
         raise ValueError("K-means clustering failed to produce labels or centers.")
+    
+    # Convert centers back to uint8 and BGR image
+    centers = np.uint8(centers) 
+    centers = centers.reshape(-1, 3)
+    centers[:, 0] = centers[:, 0] * (255.0 / 100.0)  # L を0~255に戻す
+    centers= cv2.cvtColor(centers.reshape(1, -1, 3), cv2.COLOR_LAB2BGR).reshape(-1, 3)
 
     # Convert back to uint8 and make original image
     centers = np.uint8(centers)
@@ -51,7 +64,7 @@ def _resize_image(image, new_width, src_height, src_width):
     resize_ratio = new_width / src_width
     new_height = int(src_height * resize_ratio)
     new_size = (new_width, new_height)
-    print(f"Resizing image to: {new_size}, original size: ({src_width}, {src_height})")
+    # print(f"Resizing image to: {new_size}, original size: ({src_width}, {src_height})")
 
     # ない色は作らないように最近傍補間
     resized_image = cv2.resize(image, new_size, interpolation=cv2.INTER_NEAREST)
@@ -101,7 +114,7 @@ def imageToPixelize(image):
 # csv読み込み
 # 系統,色番,R,G,B,コメント
 # 一行目はヘッダー
-def load_color_csv(file_path):
+def load_color_csv(file_path: str)-> list:
     colors = []
     with open(file_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
@@ -111,17 +124,25 @@ def load_color_csv(file_path):
                 continue
             system, color_number, r, g, b, _ = parts
             rgb = [int(r), int(g), int(b)]
-            colors.append(({"type": system, "color_number": color_number, "RGB": rgb}))
+
+            # L*a*b*に変換
+            rgb_mat = np.array([[rgb]], dtype=np.uint8)
+            lab = cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist()
+
+            colors.append(({"type": system, "color_number": color_number, "RGB": rgb, "LAB": lab}))
     return colors
 
 def nearest_color(target_rgb, color_list):
+    rgb_mat = np.array([[target_rgb]], dtype=np.uint8)
+    target_lab = cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist()
+    
     min_distance = float('inf')
     nearest = None
     for color in color_list:
-        r, g, b = color["RGB"]
-        distance = (float(target_rgb[0]) - float(r)) ** 2
-        distance += (float(target_rgb[1]) - float(g)) ** 2
-        distance += (float(target_rgb[2]) - float(b)) ** 2
+        l, a, b = color["LAB"]  # L*a*b*で距離を測る
+        distance = ((float(target_lab[0]) - float(l))*100/255) ** 2
+        distance += (float(target_lab[1]) - float(a)) ** 2
+        distance += (float(target_lab[2]) - float(b)) ** 2
         if distance < min_distance:
             min_distance = distance
             nearest = color

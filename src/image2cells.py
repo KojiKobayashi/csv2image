@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import sys
+from typing import List
 
 import settings as cfg
 
@@ -169,8 +170,6 @@ class ImageToPixels:
 
         return output_image
 
-        return output_image
-
     # ==================== Public Methods ====================
     def run(self, filename):
         """画像ファイルを読み込んで処理を実行"""
@@ -189,7 +188,7 @@ class ImageToPixels:
         unique_colors = np.unique(noise.reshape(-1, noise.shape[2]), axis=0)
         print(f"Number of unique colors after quantization and denoising: {len(unique_colors)}")
 
-        dst = self._resize_image(noise, self._number_of_line_cells, src.shape[0], src.shape[1])
+        dst = self._resize_image(noise, self._number_of_line_cells, noise.shape[0], noise.shape[1])
 
         palette = _load_color_csv("data/merinorainbow.csv")
         label_image = _map_image_to_center_color(dst, centers)
@@ -198,12 +197,37 @@ class ImageToPixels:
         if self._denoise:
             label_image = self._remove_noise(label_image)
 
-        color_counts = _count_color_pixels(label_image)
         ret = _map_image_colors_to_palette_2(label_image, mapped_colors)
         pixel = self._image_to_pixelize(ret)
 
-        return pixel, centers, mapped_colors, color_counts
+        color_counts = _count_color_pixels(label_image)
+        color_counts = [ColorCount(color.type, color.color_number, color.rgb, color.lab, count)
+                        for color, count in zip(mapped_colors, color_counts)]
+        color_counts = sorted(color_counts, key=lambda c: c.count, reverse=True)
 
+        return pixel, centers, color_counts
+
+
+# ==================== Color Class ====================
+class Color:
+    """色を表現するクラス"""
+    def __init__(self, type: str, color_number: str, rgb: list, lab: list):
+        self.type = type
+        self.color_number = color_number
+        self.rgb = rgb
+        self.lab = lab
+
+    def __repr__(self):
+        return f"Color(type='{self.type}', number='{self.color_number}', rgb={self.rgb})"
+
+class ColorCount(Color):
+    """色とそのピクセル数を表現するクラス"""
+    def __init__(self, type: str, color_number: str, rgb: list, lab: list, count: int):
+        super().__init__(type, color_number, rgb, lab)
+        self.count = count
+
+    def __repr__(self):
+        return f"ColorCount(type='{self.type}', number='{self.color_number}', rgb={self.rgb}, count={self.count})"
 
 # ==================== Static/Utility Functions ====================
 def display_image(image):
@@ -231,28 +255,31 @@ def _load_color_csv(file_path: str) -> list:
             rgb_mat = np.array([[rgb]], dtype=np.uint8)
             lab = cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist()
 
-            colors.append(({"type": system, "color_number": color_number, "RGB": rgb, "LAB": lab}))
+            color = Color(system, color_number, rgb, lab)
+            colors.append(color)
     return colors
 
 
-def _nearest_color(target_rgb, color_list):
+def _nearest_color(target_rgb, color_list:List[Color]) -> Color:
     rgb_mat = np.array([[target_rgb]], dtype=np.uint8)
     target_lab = cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist()
     
     min_distance = float('inf')
     nearest = None
     for color in color_list:
-        l, a, b = color["LAB"]  # L*a*b*で距離を測る
+        l, a, b = color.lab  # L*a*b*で距離を測る
         distance = ((float(target_lab[0]) - float(l)) * 100 / 255) ** 2
         distance += (float(target_lab[1]) - float(a)) ** 2
         distance += (float(target_lab[2]) - float(b)) ** 2
         if distance < min_distance:
             min_distance = distance
             nearest = color
+    if nearest is None:
+        raise ValueError("No nearest color found. Check if color_list is empty.")
     return nearest
 
 
-def _map_colors_to_palette(centers, palette):
+def _map_colors_to_palette(centers, palette)->List[Color]:
     mapped_colors = []
     for center in centers:
         nearest = _nearest_color(list(reversed(center)), palette)
@@ -260,7 +287,7 @@ def _map_colors_to_palette(centers, palette):
     return mapped_colors
 
 
-def _count_color_pixels(grey):
+def _count_color_pixels(grey)->List[int]:
     color_counts = {}
     height, width = grey.shape[:2]
     for i in range(height):
@@ -302,7 +329,7 @@ def _map_image_colors_to_palette_2(label_image, mapped_colors):
         for j in range(width):
             idx = label_image[i, j]
             if idx < len(mapped_colors):
-                mapped_image[i, j] = list(reversed(mapped_colors[idx]["RGB"]))
+                mapped_image[i, j] = list(reversed(mapped_colors[idx].rgb))
             else:
                 mapped_image[i, j] = [255, 255, 255]  # centersにない色は白にする
     return mapped_image
@@ -316,11 +343,10 @@ if __name__ == "__main__":
     file_path = sys.argv[1]
 
     processor = ImageToPixels()
-    pixels, centers, mapped_colors, color_counts = processor.run(file_path)
+    pixels, centers, color_counts = processor.run(file_path)
     
     cv2.imwrite("output_pixelized.png", pixels)
     print("Centers:", centers)
-    print("mapped_colors:", mapped_colors)
     print("Color Counts:", color_counts)
 
     display_image(pixels)

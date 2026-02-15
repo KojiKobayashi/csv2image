@@ -90,28 +90,26 @@ def main():
                     processor.number_of_line_cells = number_of_line_cells
                     processor.denoise = denoise
 
-                    # 一時的にファイルを保存して処理
-                    # TODO オンメモリで処理できるようにする
-                    _ensure_tmp_dir()
-                    temp_image_path = "./tmp/temp_image.jpg"
-                    cv2.imwrite(temp_image_path, src_image)
+                    st.session_state.processor = processor
+
+                    # # 一時的にファイルを保存して処理
+                    # # TODO オンメモリで処理できるようにする
+                    # _ensure_tmp_dir()
+                    # temp_image_path = "./tmp/temp_image.jpg"
+                    # cv2.imwrite(temp_image_path, src_image)
 
                     # 処理実行
-                    # pixel, color_counts = processor.run(temp_image_path)
+                    label_image, mapped_colors = processor.create_label_image(src_image)
 
-                    label_image, mapped_colors = processor.create_label_image(temp_image_path)
                     st.session_state.label_image = label_image
                     st.session_state.original_label_image = label_image.copy()
                     st.session_state.mapped_colors = mapped_colors
-                    st.session_state.processor = processor
                     st.session_state.last_click = None
 
                     pixel = processor.create_pixel_image(label_image, mapped_colors)
                     color_counts = processor.create_color_counts(label_image, mapped_colors)
 
-                    # セッションステートに結果を保存
                     st.session_state.result_pixel = pixel
-                    # st.session_state.centers = centers
                     st.session_state.color_counts = color_counts
                     st.success("処理完了！")
 
@@ -128,12 +126,12 @@ def main():
             st.markdown("---")
             st.subheader("📊 詳細情報")
             
-            info_col1, info_col2, info_col3 = st.columns(3)
+            info_col1, info_col2 = st.columns(3)
             
             with info_col1:
                 st.metric("取得した色数", len(st.session_state.color_counts))
             
-            with info_col3:
+            with info_col2:
                 st.metric("ピクセル総数", sum(c.count for c in st.session_state.color_counts))
 
             # 色カウント情報

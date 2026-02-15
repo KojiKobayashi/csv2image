@@ -173,12 +173,8 @@ class ImageToPixels:
 
     
     # ==================== Public Methods ====================
-    def create_label_image(self, filename):
-        """画像ファイルを読み込んで、centersのインデックスの1channel画像を作成"""
-        src = cv2.imread(filename)
-        if src is None:
-            raise ValueError("Image not found or unable to load.")
-
+    def create_label_image(self, src: np.ndarray):
+        """画像からcentersのインデックスの1channel画像を作成"""
         resize = self._resize_image_2slim(src)
         median, labels, centers = self._median_cut(resize)
         
@@ -213,9 +209,17 @@ class ImageToPixels:
                         for color, count in zip(mapped_colors, color_counts)]
         color_counts = sorted(color_counts, key=lambda c: c.count, reverse=True)
         return color_counts
-    
-    def run(self, filename):
-        label_image, mapped_colors = self.create_label_image(filename)
+
+    # keyword引数にする
+    def run(self, filename: str|None = None, src: np.ndarray|None = None):
+        if filename is not None:
+            src = cv2.imread(filename)
+            if src is None:
+                raise ValueError("Image not found or unable to load.")
+        elif src is None:
+            raise ValueError("Either filename or src must be provided.")
+        
+        label_image, mapped_colors = self.create_label_image(src)
         created_pixel_image = self.create_pixel_image(label_image, mapped_colors)
         color_counts = self.create_color_counts(label_image, mapped_colors)
         return created_pixel_image, color_counts

@@ -8,18 +8,15 @@
 * どっかにフォルダを作って内容物をコピー
 * `uv venv` で仮想環境作成
 * `uv pip install -r requirements.txt` で必要リブラり取得
-* コマンドプロンプトから `.\csv2image.bat "src\in1.csv" "src\in2.csv" "test.jpg"` でtest.jpgが「ぺ」になったら成功
 
 ## 使用方法
-` .\csv2image.bat csvファイルパス1 CSVファイルパス2 出力画像パス`
+* コマンドプロンプトから
 
-* 第一引数 画像のcsvファイルパス
-* 第二引数 インデックスとRGB値の対応表csvファイルパス
-* 第三引数 出力画像ファイルパス(jpg/png/bmpはいけるはず)
+```.\.venv\Scripts\activate
+uv run streamlit run .\app\app.py
+```
 
-## 実行設定
-src/settings.py をいじると何とかなる
-
-## TODO
-* 矩形を入力してもらう
+# TODO
 * 色数を減らして再実行
+* アスペクト比を保って矩形選択
+* 出力糸のリンクなどを追加

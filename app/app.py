@@ -66,17 +66,161 @@ def main():
             st.error("画像の読み込みに失敗しました。別のファイルを試してください。")
             return
 
+        # セッション状態の初期化
+        if "roi_p1" not in st.session_state:
+            st.session_state.roi_p1 = None
+            st.session_state.roi_p2 = None
+            st.session_state.roi_selecting_point = None  # None, "p1", "p2" の3値
+            st.session_state.last_click_coords = None  # 前回のクリック座標
+            # デフォルト：画像全体
+            height, width = src_image.shape[:2]
+            st.session_state.roi_rect = (0, 0, width, height)
+
         # 元画像の表示
         col1, col2 = st.columns(2)
         
         with col1:
             st.subheader("元画像")
-            st.image(src_image, use_container_width=True, channels="BGR")
+            
+            # 矩形選択UIセクション（折りたたみ可能）
+            with st.expander("🔲 矩形領域選択（オプション）", expanded=False):
+                st.caption("デフォルトでは画像全体を処理します。特定の領域のみを処理したい場合に設定してください。")
+                
+                # 選択状態の表示
+                p1_status = "✅" if st.session_state.roi_p1 else "⭕"
+                p2_status = "✅" if st.session_state.roi_p2 else "⭕"
+                
+                select_col1, select_col2, select_col3 = st.columns(3)
+                
+                with select_col1:
+                    button_text = f"📍 左上 {p1_status}"
+                    if st.button(button_text, use_container_width=True, type="secondary", key="btn_p1"):
+                        st.session_state.roi_selecting_point = "p1"
+                        st.session_state.last_click_coords = None  # 前回クリック座標をリセット
+                        st.rerun()  # ボタンクリック時に画面更新して古い座標をクリア
+                
+                with select_col2:
+                    button_text = f"📍 右下 {p2_status}"
+                    if st.button(button_text, use_container_width=True, type="secondary", key="btn_p2"):
+                        st.session_state.roi_selecting_point = "p2"
+                        st.session_state.last_click_coords = None  # 前回クリック座標をリセット
+                        st.rerun()  # ボタンクリック時に画面更新して古い座標をクリア
+                
+                with select_col3:
+                    if st.button("🔄 リセット", use_container_width=True, key="btn_reset"):
+                        st.session_state.roi_p1 = None
+                        st.session_state.roi_p2 = None
+                        st.session_state.last_click_coords = None
+                        st.session_state.roi_selecting_point = None
+                        height, width = src_image.shape[:2]
+                        st.session_state.roi_rect = (0, 0, width, height)
+                
+                st.markdown(f"**選択状態**: 左上 {p1_status} `{st.session_state.roi_p1 if st.session_state.roi_p1 else '未選択'}` | 右下 {p2_status} `{st.session_state.roi_p2 if st.session_state.roi_p2 else '未選択'}`")
+            
+            # 画像表示とインタラクション
+            display_image = src_image.copy()
+            
+            # 選択済みポイントを描画
+            if st.session_state.roi_p1:
+                cv2.circle(display_image, st.session_state.roi_p1, 8, (0, 255, 0), -1)
+                cv2.putText(display_image, "P1(LT)", (st.session_state.roi_p1[0]+10, st.session_state.roi_p1[1]-10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            
+            if st.session_state.roi_p2:
+                cv2.circle(display_image, st.session_state.roi_p2, 8, (255, 0, 0), -1)
+                cv2.putText(display_image, "P2(RB)", (st.session_state.roi_p2[0]+10, st.session_state.roi_p2[1]-10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+            
+            # 両点が選択されたら矩形を描画
+            if st.session_state.roi_p1 and st.session_state.roi_p2:
+                p1 = st.session_state.roi_p1
+                p2 = st.session_state.roi_p2
+                x1, x2 = sorted([p1[0], p2[0]])
+                y1, y2 = sorted([p1[1], p2[1]])
+                cv2.rectangle(display_image, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                # 矩形内を半透明に
+                overlay = display_image.copy()
+                cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 255, 0), -1)
+                display_image = cv2.addWeighted(overlay, 0.15, display_image, 0.85, 0)
+            
+            # 画像を表示用にリサイズ（最大幅800px）
+            orig_height, orig_width = display_image.shape[:2]
+            max_display_width = 800
+            if orig_width > max_display_width:
+                display_scale = max_display_width / orig_width
+                display_width = max_display_width
+                display_height = int(orig_height * display_scale)
+                display_resized = cv2.resize(display_image, (display_width, display_height), interpolation=cv2.INTER_AREA)
+            else:
+                display_scale = 1.0
+                display_resized = display_image
+            
+            # 画像をクリック可能にして座標取得
+            coords = streamlit_image_coordinates(cv2.cvtColor(display_resized, cv2.COLOR_BGR2RGB), key="roi_selector")
+            
+            if coords is not None and "x" in coords and "y" in coords:
+                # クリック座標を元の画像サイズに変換
+                click_point = (int(coords["x"] / display_scale), int(coords["y"] / display_scale))
+                
+                # 前回とは異なるクリックかどうかを確認
+                if click_point != st.session_state.last_click_coords:
+                    st.session_state.last_click_coords = click_point
+                    
+                    # roi_selecting_point が設定されている場合のみ座標を保存
+                    if st.session_state.roi_selecting_point == "p1":
+                        st.session_state.roi_p1 = click_point
+                        st.session_state.roi_selecting_point = None  # 入力モード解除
+                        st.success(f"✅ 左上: {click_point}")
+                    elif st.session_state.roi_selecting_point == "p2":
+                        st.session_state.roi_p2 = click_point
+                        st.session_state.roi_selecting_point = None  # 入力モード解除
+                        st.success(f"✅ 右下: {click_point}")
+                    
+                    # 両点が選択されたら矩形を確定（p1, p2どちらを選択した場合でもチェック）
+                    if st.session_state.roi_p1 and st.session_state.roi_p2:
+                        p1 = st.session_state.roi_p1
+                        p2 = st.session_state.roi_p2
+                        x1, x2 = sorted([p1[0], p2[0]])
+                        y1, y2 = sorted([p1[1], p2[1]])
+                        st.session_state.roi_rect = (x1, y1, x2, y2)
+                    
+                    st.rerun()
 
         # 処理ボタン
         if st.button("🚀 処理実行", use_container_width=True, type="primary"):
             with st.spinner("処理中..."):
                 try:
+                    # 処理対象の画像を決定
+                    process_image = src_image.copy()
+                    
+                    # 矩形が選択されている場合、その領域のみを抽出
+                    if st.session_state.roi_rect:
+                        x1, y1, x2, y2 = st.session_state.roi_rect
+                        
+                        # 画像全体かどうかをチェック
+                        is_full_image = (x1 == 0 and y1 == 0 and 
+                                       x2 == src_image.shape[1] and y2 == src_image.shape[0])
+                        
+                        if not is_full_image:
+                            # 矩形サイズの検証
+                            if x1 >= x2 or y1 >= y2:
+                                st.error(f"⚠️ 矩形のサイズが不正です: ({x1}, {y1}) - ({x2}, {y2})")
+                            elif (x2 - x1) < 2 or (y2 - y1) < 2:
+                                st.error(f"⚠️ 矩形が小さすぎます: 幅{x2-x1}px, 高さ{y2-y1}px（最小2px必要）")
+                            else:
+                                process_image = src_image[y1:y2, x1:x2].copy()
+                                st.session_state.roi_offset = (x1, y1)  # オフセットを保存
+                                
+                                if process_image.size == 0:
+                                    st.error("⚠️ 抽出した画像が空です")
+                                else:
+                                    st.info(f"📍 処理対象: 選択領域 位置({x1}, {y1}) サイズ {x2-x1}×{y2-y1}")
+                        else:
+                            st.session_state.roi_offset = (0, 0)
+                            st.info("📍 処理対象: 画像全体")
+                    else:
+                        st.session_state.roi_offset = (0, 0)
+                    
                     # ImageToPixelsインスタンスの作成
                     processor = ImageToPixels()
                     
@@ -92,14 +236,8 @@ def main():
 
                     st.session_state.processor = processor
 
-                    # # 一時的にファイルを保存して処理
-                    # # TODO オンメモリで処理できるようにする
-                    # _ensure_tmp_dir()
-                    # temp_image_path = "./tmp/temp_image.jpg"
-                    # cv2.imwrite(temp_image_path, src_image)
-
                     # 処理実行
-                    label_image, mapped_colors = processor.create_label_image(src_image)
+                    label_image, mapped_colors = processor.create_label_image(process_image)
 
                     st.session_state.label_image = label_image
                     st.session_state.original_label_image = label_image.copy()
@@ -126,7 +264,18 @@ def main():
             st.markdown("---")
             st.subheader("📊 詳細情報")
             
-            info_col1, info_col2 = st.columns(3)
+            # 矩形選択情報の表示（選択されている場合のみ）
+            if "roi_rect" in st.session_state and st.session_state.roi_rect:
+                x1, y1, x2, y2 = st.session_state.roi_rect
+                roi_width = x2 - x1
+                roi_height = y2 - y1
+                # 画像全体かどうかをチェック
+                if (x1, y1) != (0, 0) or (roi_width, roi_height) != src_image.shape[:2][::-1]:
+                    st.info(f"📍 選択領域: 位置({x1}, {y1}) サイズ {roi_width}×{roi_height}")
+                else:
+                    st.info("📍 処理対象: 画像全体")
+            
+            info_col1, info_col2 = st.columns(2)
             
             with info_col1:
                 st.metric("取得した色数", len(st.session_state.color_counts))

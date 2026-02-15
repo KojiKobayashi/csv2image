@@ -1,9 +1,10 @@
 import streamlit as st
 import cv2
 import numpy as np
-import pandas as pd
 from pathlib import Path
 import sys
+import io
+import pandas as pd
 
 # srcフォルダをPythonパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -304,11 +305,50 @@ def main():
                 with col3:
                     st.metric("ピクセル数", f"{color.count:,}", label_visibility="collapsed")
 
-            # 処理結果の保存
-            if st.button("💾 結果を保存", use_container_width=True):
-                output_path = "output_pixelized.png"
-                cv2.imwrite(output_path, st.session_state.result_pixel)
-                st.success(f"{output_path}に保存しました")
+            # 処理結果のダウンロード
+            st.markdown("---")
+            st.subheader("📥 結果をダウンロード")
+            
+            # mapped_colors を CSV データに変換
+            colors_data = []
+            for idx, color in enumerate(st.session_state.mapped_colors):
+                colors_data.append({
+                    "色番": idx,
+                    "色名": color.type,
+                    "色コード": color.color_number,
+                    "R": color.rgb[0],
+                    "G": color.rgb[1],
+                    "B": color.rgb[2]
+                })
+            colors_df = pd.DataFrame(colors_data)
+            
+            # ダウンロード用CSV
+            colors_csv = colors_df.to_csv(index=False, encoding='utf-8-sig')
+            
+            # ダウンロード用画像
+            _, img_bytes = cv2.imencode('.png', st.session_state.result_pixel)
+            img_buffer = io.BytesIO(img_bytes)
+            
+            # ダウンロードボタン
+            col_img, col_csv = st.columns(2)
+            
+            with col_img:
+                st.download_button(
+                    label="🖼️ ドット絵をダウンロード",
+                    data=img_buffer,
+                    file_name="result_pixelized.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
+            
+            with col_csv:
+                st.download_button(
+                    label="📊 色情報をダウンロード",
+                    data=colors_csv,
+                    file_name="color_palette.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
 
             # 編集UI
             if "label_image" in st.session_state and "mapped_colors" in st.session_state:

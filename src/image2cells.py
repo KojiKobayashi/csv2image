@@ -173,8 +173,8 @@ class ImageToPixels:
 
     
     # ==================== Public Methods ====================
-    def run(self, filename):
-        """画像ファイルを読み込んで処理を実行"""
+    def create_label_image(self, filename):
+        """画像ファイルを読み込んで、centersのインデックスの1channel画像を作成"""
         src = cv2.imread(filename)
         if src is None:
             raise ValueError("Image not found or unable to load.")
@@ -185,33 +185,41 @@ class ImageToPixels:
         labels = labels.astype(np.uint8)
         noise = self._remove_noise_ori(median)
 
-        # unique_colors = np.unique(median.reshape(-1, median.shape[2]), axis=0)
-        # print(f"Number of unique colors after quantization and denoising: {len(unique_colors)}")
-        # unique_colors = np.unique(noise.reshape(-1, noise.shape[2]), axis=0)
-        # print(f"Number of unique colors after quantization and denoising: {len(unique_colors)}")
-
         dst = self._resize_image(noise, self._number_of_line_cells, noise.shape[0], noise.shape[1])
-
         label_image = _map_image_to_center_color(dst, centers)
 
         if self._denoise:
             label_image = self._remove_noise(label_image)
 
         palette = _load_color_csv("data/merinorainbow.csv")
-        label_image = _map_image_to_center_color(dst, centers)
         mapped_colors = _map_colors_to_palette(centers, palette)
 
-        ret = _map_image_colors_to_palette_2(label_image, mapped_colors)
+        return label_image, mapped_colors
+    
+    def create_pixel_image(self, label_image, mapped_colors):
+        """label_imageのインデックスをmapped_colorsのRGBに変換して、ピクセル化する"""
+        ret = _map_image_colors_to_colors(label_image, mapped_colors)
         pixel = self._image_to_pixelize(ret)
+        return pixel
 
+    def create_mapped_image(self, label_image, mapped_colors):
+        """label_imageをmapped_colorsのBGR画像に変換する（グリッド線なし）"""
+        return _map_image_colors_to_colors(label_image, mapped_colors)
+    
+    def create_color_counts(self, label_image, mapped_colors):
+        """label_imageのインデックスをmapped_colorsのRGBに変換して、色ごとのピクセル数をカウントする"""
         color_counts = _count_color_pixels(label_image)
         color_counts = [ColorCount(color.type, color.color_number, color.rgb, color.lab, count)
                         for color, count in zip(mapped_colors, color_counts)]
         color_counts = sorted(color_counts, key=lambda c: c.count, reverse=True)
-
-        return pixel, centers, color_counts
-
-
+        return color_counts
+    
+    def run(self, filename):
+        label_image, mapped_colors = self.create_label_image(filename)
+        created_pixel_image = self.create_pixel_image(label_image, mapped_colors)
+        color_counts = self.create_color_counts(label_image, mapped_colors)
+        return created_pixel_image, color_counts
+    
 # ==================== Color Class ====================
 class Color:
     """色を表現するクラス"""
@@ -310,7 +318,7 @@ def _count_color_pixels(grey)->List[int]:
     return ret
 
 
-def _map_image_to_center_color(image, centers):
+def _map_image_to_center_color(image, centers)->np.ndarray:
     # 画像をcentersのインデックスの1channel画像に変換
     grey = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
 
@@ -325,7 +333,8 @@ def _map_image_to_center_color(image, centers):
     return grey
 
 
-def _map_image_colors_to_palette_2(label_image, mapped_colors):
+# label_imageのインデックスをmapped_colorsのRGBに変換
+def _map_image_colors_to_colors(label_image, mapped_colors)->np.ndarray:
     height, width = label_image.shape[:2]
     mapped_image = np.zeros((height, width, 3), dtype=np.uint8)
 
@@ -347,10 +356,10 @@ if __name__ == "__main__":
     file_path = sys.argv[1]
 
     processor = ImageToPixels()
-    pixels, centers, color_counts = processor.run(file_path)
+    pixels, color_counts = processor.run(file_path)
     
     cv2.imwrite("output_pixelized.png", pixels)
-    print("Centers:", centers)
+    # print("Centers:", centers)
     print("Color Counts:", color_counts)
 
     display_image(pixels)

@@ -10,6 +10,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from image2cells import ImageToPixels
 
+try:
+    from streamlit_image_coordinates import streamlit_image_coordinates
+except ImportError:
+    streamlit_image_coordinates = None
+
+
+def _ensure_tmp_dir():
+    Path("./tmp").mkdir(parents=True, exist_ok=True)
+
 
 def main():
     # ページ設定
@@ -82,15 +91,27 @@ def main():
                     processor.denoise = denoise
 
                     # 一時的にファイルを保存して処理
+                    # TODO オンメモリで処理できるようにする
+                    _ensure_tmp_dir()
                     temp_image_path = "./tmp/temp_image.jpg"
                     cv2.imwrite(temp_image_path, src_image)
 
                     # 処理実行
-                    pixel, centers, color_counts = processor.run(temp_image_path)
+                    # pixel, color_counts = processor.run(temp_image_path)
+
+                    label_image, mapped_colors = processor.create_label_image(temp_image_path)
+                    st.session_state.label_image = label_image
+                    st.session_state.original_label_image = label_image.copy()
+                    st.session_state.mapped_colors = mapped_colors
+                    st.session_state.processor = processor
+                    st.session_state.last_click = None
+
+                    pixel = processor.create_pixel_image(label_image, mapped_colors)
+                    color_counts = processor.create_color_counts(label_image, mapped_colors)
 
                     # セッションステートに結果を保存
                     st.session_state.result_pixel = pixel
-                    st.session_state.centers = centers
+                    # st.session_state.centers = centers
                     st.session_state.color_counts = color_counts
                     st.success("処理完了！")
 
@@ -110,7 +131,7 @@ def main():
             info_col1, info_col2, info_col3 = st.columns(3)
             
             with info_col1:
-                st.metric("取得した色数", len(st.session_state.centers))
+                st.metric("取得した色数", len(st.session_state.color_counts))
             
             with info_col3:
                 st.metric("ピクセル総数", sum(c.count for c in st.session_state.color_counts))
@@ -124,7 +145,7 @@ def main():
                 
                 with col1:
                     # BGR形式のRGBをRGB形式に変換して色見本を表示
-                    rgb_color = f"rgb({color.rgb[2]}, {color.rgb[1]}, {color.rgb[0]})"
+                    rgb_color = f"rgb({color.rgb[0]}, {color.rgb[1]}, {color.rgb[2]})"
                     st.markdown(
                         f'<div style="width: 40px; height: 40px; background-color: {rgb_color}; border: 1px solid #ccc; border-radius: 4px;"></div>',
                         unsafe_allow_html=True
@@ -141,6 +162,83 @@ def main():
                 output_path = "output_pixelized.png"
                 cv2.imwrite(output_path, st.session_state.result_pixel)
                 st.success(f"{output_path}に保存しました")
+
+            # 編集UI
+            if "label_image" in st.session_state and "mapped_colors" in st.session_state:
+                st.markdown("---")
+                st.subheader("🖌️ 編集")
+
+                if streamlit_image_coordinates is None:
+                    st.warning("編集UIを使うには streamlit-image-coordinates の導入が必要です。")
+                    return
+
+                edit_scale = st.sidebar.slider("編集表示倍率", min_value=4, max_value=20, value=10, step=1)
+
+                if "selected_color_idx" not in st.session_state:
+                    st.session_state.selected_color_idx = 0
+
+                st.markdown("#### 🎯 色の選択")
+                palette_cols = st.columns(6)
+                for idx, color in enumerate(st.session_state.mapped_colors):
+                    with palette_cols[idx % 6]:
+                        rgb_color = f"rgb({color.rgb[0]}, {color.rgb[1]}, {color.rgb[2]})"
+                        st.markdown(
+                            f'<div style="width: 36px; height: 36px; background-color: {rgb_color}; border: 1px solid #ccc; border-radius: 4px;"></div>',
+                            unsafe_allow_html=True
+                        )
+                        label = "選択中" if idx == st.session_state.selected_color_idx else "選択"
+                        if st.button(label, key=f"palette_{idx}"):
+                            st.session_state.selected_color_idx = idx
+
+                selected_color = st.session_state.mapped_colors[st.session_state.selected_color_idx]
+                st.markdown(
+                    f"選択中: {selected_color.type} ({selected_color.color_number})"
+                )
+
+                label_image = st.session_state.label_image
+                processor = st.session_state.get("processor", ImageToPixels())
+                mapped_image = processor.create_mapped_image(label_image, st.session_state.mapped_colors)
+
+                height, width = mapped_image.shape[:2]
+                preview = cv2.resize(
+                    mapped_image,
+                    (width * edit_scale, height * edit_scale),
+                    interpolation=cv2.INTER_NEAREST
+                )
+                preview_rgb = cv2.cvtColor(preview, cv2.COLOR_BGR2RGB)
+
+                st.markdown("#### 🧭 クリックで塗る")
+                coords = streamlit_image_coordinates(preview_rgb, key="editor_canvas")
+                if coords is not None and "x" in coords and "y" in coords:
+                    click = (coords["x"], coords["y"])
+                    if st.session_state.last_click != click:
+                        st.session_state.last_click = click
+                        cell_x = int(coords["x"] // edit_scale)
+                        cell_y = int(coords["y"] // edit_scale)
+                        if 0 <= cell_x < width and 0 <= cell_y < height:
+                            st.session_state.label_image[cell_y, cell_x] = st.session_state.selected_color_idx
+                            st.session_state.result_pixel = processor.create_pixel_image(
+                                st.session_state.label_image,
+                                st.session_state.mapped_colors
+                            )
+                            st.session_state.color_counts = processor.create_color_counts(
+                                st.session_state.label_image,
+                                st.session_state.mapped_colors
+                            )
+                            st.rerun()
+
+                reset_col1, reset_col2 = st.columns([0.2, 0.8])
+                with reset_col1:
+                    if st.button("↩️ リセット"):
+                        st.session_state.label_image = st.session_state.original_label_image.copy()
+                        st.session_state.result_pixel = processor.create_pixel_image(
+                            st.session_state.label_image,
+                            st.session_state.mapped_colors
+                        )
+                        st.session_state.color_counts = processor.create_color_counts(
+                            st.session_state.label_image,
+                            st.session_state.mapped_colors
+                        )
 
     else:
         # アップロード待機画面

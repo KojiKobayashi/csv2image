@@ -6,6 +6,26 @@ from typing import List
 import settings as cfg
 
 
+class Color:
+    """色を表現するクラス"""
+    def __init__(self, type: str, color_number: str, rgb: list, lab: list):
+        self.type = type
+        self.color_number = color_number
+        self.rgb = rgb
+        self.lab = lab
+
+    def __repr__(self):
+        return f"Color(type='{self.type}', number='{self.color_number}', rgb={self.rgb})"
+
+class ColorCount(Color):
+    """色とそのピクセル数を表現するクラス"""
+    def __init__(self, type: str, color_number: str, rgb: list, lab: list, count: int):
+        super().__init__(type, color_number, rgb, lab)
+        self.count = count
+
+    def __repr__(self):
+        return f"ColorCount(type='{self.type}', number='{self.color_number}', rgb={self.rgb}, count={self.count})"
+
 class ImageToPixels:
     """画像をドット絵（ピクセルアート）に変換するクラス"""
     
@@ -94,14 +114,23 @@ class ImageToPixels:
     def denoise(self, value):
         self._denoise = value
 
+
     # ==================== Private Methods ====================
     def _remove_noise_ori(self, image):
+        '''
+        _remove_noise_ori：今のとこ未実装
+        
+        :param self: 説明
+        :param image: 説明
+        '''
         return image
+
 
     def _remove_noise(self, image):
         """TODO: 強すぎるのであまりやらないほうがいい、ノイズ除去 3×3のopening"""
         denoised_image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
         return denoised_image
+
 
     def _median_cut(self, image):
         """メディアンカット法で色削減"""
@@ -119,16 +148,15 @@ class ImageToPixels:
         if labels is None or centers is None:
             raise ValueError("K-means clustering failed to produce labels or centers.")
         
-        # centers = np.uint8(centers) 
         centers = centers.reshape(-1, 3)
         centers[:, 0] = centers[:, 0] * (255.0 / 100.0)  # L を0~255に戻す
         centers = np.uint8(centers)
         centers = cv2.cvtColor(centers.reshape(1, -1, 3), cv2.COLOR_LAB2BGR).reshape(-1, 3)
-        #centers = np.uint8(centers)
         
         quantized_image = centers[labels.flatten()]
         quantized_image = quantized_image.reshape((image.shape))
         return quantized_image, labels.reshape((image.shape[0], image.shape[1])), centers
+
 
     def _resize_image(self, image, new_width, src_height, src_width):
         """縦横比を保って画像をリサイズ"""
@@ -142,6 +170,7 @@ class ImageToPixels:
         resized_image = cv2.resize(image, new_size, interpolation=cv2.INTER_NEAREST)
         return resized_image
 
+
     def _resize_image_2slim(self, image):
         """画像を縦に引き伸ばす"""
         if self._cell_height <= 0 or self._cell_width <= 0:
@@ -151,6 +180,7 @@ class ImageToPixels:
         new_size = (int(width), int((height * self._cell_width) / self._cell_height))
         resized_image = cv2.resize(image, new_size, interpolation=cv2.INTER_CUBIC)
         return resized_image
+
 
     def _image_to_pixelize(self, image):
         """画像のピクセル間の線を引く"""
@@ -173,7 +203,7 @@ class ImageToPixels:
 
     
     # ==================== Public Methods ====================
-    def create_label_image(self, src: np.ndarray):
+    def create_label_image(self, src: np.ndarray)-> tuple[np.ndarray, list[Color]]:
         """画像からcentersのインデックスの1channel画像を作成"""
         resize = self._resize_image_2slim(src)
         median, labels, centers = self._median_cut(resize)
@@ -191,18 +221,21 @@ class ImageToPixels:
         mapped_colors = _map_colors_to_palette(centers, palette)
 
         return label_image, mapped_colors
-    
-    def create_pixel_image(self, label_image, mapped_colors):
+
+
+    def create_pixel_image(self, label_image: np.ndarray, mapped_colors: list[Color])-> np.ndarray:
         """label_imageのインデックスをmapped_colorsのRGBに変換して、ピクセル化する"""
         ret = _map_image_colors_to_colors(label_image, mapped_colors)
         pixel = self._image_to_pixelize(ret)
         return pixel
 
-    def create_mapped_image(self, label_image, mapped_colors):
+
+    def create_mapped_image(self, label_image: np.ndarray, mapped_colors: list[Color])-> np.ndarray:
         """label_imageをmapped_colorsのBGR画像に変換する（グリッド線なし）"""
         return _map_image_colors_to_colors(label_image, mapped_colors)
-    
-    def create_color_counts(self, label_image, mapped_colors):
+
+
+    def create_color_counts(self, label_image: np.ndarray, mapped_colors: list[Color])-> list[ColorCount]:
         """label_imageのインデックスをmapped_colorsのRGBに変換して、色ごとのピクセル数をカウントする"""
         color_counts = _count_color_pixels(label_image)
         color_counts = [ColorCount(color.type, color.color_number, color.rgb, color.lab, count)
@@ -210,8 +243,8 @@ class ImageToPixels:
         color_counts = sorted(color_counts, key=lambda c: c.count, reverse=True)
         return color_counts
 
-    # keyword引数にする
-    def run(self, filename: str|None = None, src: np.ndarray|None = None):
+
+    def run(self, filename: str|None = None, src: np.ndarray|None = None)-> tuple[np.ndarray, list[ColorCount]]:
         if filename is not None:
             src = cv2.imread(filename)
             if src is None:
@@ -223,27 +256,7 @@ class ImageToPixels:
         created_pixel_image = self.create_pixel_image(label_image, mapped_colors)
         color_counts = self.create_color_counts(label_image, mapped_colors)
         return created_pixel_image, color_counts
-    
-# ==================== Color Class ====================
-class Color:
-    """色を表現するクラス"""
-    def __init__(self, type: str, color_number: str, rgb: list, lab: list):
-        self.type = type
-        self.color_number = color_number
-        self.rgb = rgb
-        self.lab = lab
 
-    def __repr__(self):
-        return f"Color(type='{self.type}', number='{self.color_number}', rgb={self.rgb})"
-
-class ColorCount(Color):
-    """色とそのピクセル数を表現するクラス"""
-    def __init__(self, type: str, color_number: str, rgb: list, lab: list, count: int):
-        super().__init__(type, color_number, rgb, lab)
-        self.count = count
-
-    def __repr__(self):
-        return f"ColorCount(type='{self.type}', number='{self.color_number}', rgb={self.rgb}, count={self.count})"
 
 # ==================== Static/Utility Functions ====================
 def display_image(image):

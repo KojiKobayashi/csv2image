@@ -205,6 +205,12 @@ class ImageToPixels:
     # ==================== Public Methods ====================
     def create_label_image(self, src: np.ndarray)-> tuple[np.ndarray, list[Color]]:
         """画像からcentersのインデックスの1channel画像を作成"""
+
+        if max(src.shape) > 2048:
+            scale = 2048 / max(src.shape)
+            new_size = (int(src.shape[1] * scale), int(src.shape[0] * scale))
+            src = cv2.resize(src, new_size, interpolation=cv2.INTER_CUBIC)
+        
         resize = self._resize_image_2slim(src)
         median, labels, centers = self._median_cut(resize)
         

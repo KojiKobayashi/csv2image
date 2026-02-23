@@ -27,6 +27,7 @@ DEFAULT_LINE_THICKNESS = 1
 DEFAULT_THICK_LINE_THICKNESS = 3
 DEFAULT_THICK_LINE_INTERVAL = 5
 DEFAULT_EDIT_SCALE = 10
+DEFAULT_EDIT_HISTORY_LIMIT = 500
 
 # スライダー範囲
 COLORS_NUMBER_RANGE = (2, 64)
@@ -426,8 +427,10 @@ def render_edit_section():
         st.session_state.selected_color_idx = 0
     if st.session_state.selected_color_idx >= len(st.session_state.mapped_colors):
         st.session_state.selected_color_idx = 0
-    if "edit_dirty" not in st.session_state:
-        st.session_state.edit_dirty = False
+    if "edit_history" not in st.session_state:
+        st.session_state.edit_history = []
+    if "redo_history" not in st.session_state:
+        st.session_state.redo_history = []
     
     st.markdown("#### 🎯 色の選択")
     palette_cols = st.columns(6)
@@ -472,18 +475,57 @@ def render_edit_section():
             cell_y = int(coords["y"] // edit_scale)
             if 0 <= cell_x < width and 0 <= cell_y < height:
                 selected_idx = st.session_state.selected_color_idx
-                if int(st.session_state.label_image[cell_y, cell_x]) != selected_idx:
+                prev_idx = int(st.session_state.label_image[cell_y, cell_x])
+                if prev_idx != selected_idx:
                     st.session_state.label_image[cell_y, cell_x] = selected_idx
                     selected_bgr = tuple(reversed(st.session_state.mapped_colors[selected_idx].rgb))
                     st.session_state.mapped_image[cell_y, cell_x] = selected_bgr
-                    st.session_state.edit_dirty = True
+                    st.session_state.edit_history.append({
+                        "x": cell_x,
+                        "y": cell_y,
+                        "prev": prev_idx,
+                        "new": selected_idx
+                    })
+                    if len(st.session_state.edit_history) > DEFAULT_EDIT_HISTORY_LIMIT:
+                        st.session_state.edit_history.pop(0)
+                    st.session_state.redo_history.clear()
                     st.rerun()
 
-    if st.session_state.edit_dirty:
+    has_pending_edits = len(st.session_state.edit_history) > 0
+    if has_pending_edits:
         st.warning("未反映の編集があります。必要なら「✅ 編集内容を結果に反映」を押してください。")
+        st.caption(
+            f"未反映の編集数: {len(st.session_state.edit_history)} / 履歴上限: {DEFAULT_EDIT_HISTORY_LIMIT}"
+        )
     
-    reset_col1, reset_col2, reset_col3 = st.columns([0.3, 0.2, 0.5])
-    with reset_col1:
+    action_col1, action_col2, action_col3 = st.columns([0.2, 0.2, 0.3])
+    with action_col1:
+        if st.button("↶ Undo", use_container_width=True):
+            if st.session_state.edit_history:
+                op = st.session_state.edit_history.pop()
+                x, y, prev_idx = op["x"], op["y"], op["prev"]
+                st.session_state.label_image[y, x] = prev_idx
+                prev_bgr = tuple(reversed(st.session_state.mapped_colors[prev_idx].rgb))
+                st.session_state.mapped_image[y, x] = prev_bgr
+                st.session_state.redo_history.append(op)
+                if len(st.session_state.redo_history) > DEFAULT_EDIT_HISTORY_LIMIT:
+                    st.session_state.redo_history.pop(0)
+                st.rerun()
+
+    with action_col2:
+        if st.button("↷ Redo", use_container_width=True):
+            if st.session_state.redo_history:
+                op = st.session_state.redo_history.pop()
+                x, y, new_idx = op["x"], op["y"], op["new"]
+                st.session_state.label_image[y, x] = new_idx
+                new_bgr = tuple(reversed(st.session_state.mapped_colors[new_idx].rgb))
+                st.session_state.mapped_image[y, x] = new_bgr
+                st.session_state.edit_history.append(op)
+                if len(st.session_state.edit_history) > DEFAULT_EDIT_HISTORY_LIMIT:
+                    st.session_state.edit_history.pop(0)
+                st.rerun()
+
+    with action_col3:
         if st.button("✅ 編集内容を結果に反映", type="primary"):
             with st.spinner("結果画像を更新中..."):
                 st.session_state.result_pixel = processor.create_pixel_image(
@@ -494,9 +536,11 @@ def render_edit_section():
                     st.session_state.label_image,
                     st.session_state.mapped_colors
                 )
-                st.session_state.edit_dirty = False
+                st.session_state.edit_history.clear()
+                st.session_state.redo_history.clear()
 
-    with reset_col2:
+    reset_col1, reset_col2 = st.columns([0.2, 0.8])
+    with reset_col1:
         if st.button("↩️ リセット"):
             st.session_state.label_image = st.session_state.original_label_image.copy()
             st.session_state.mapped_image = st.session_state.original_mapped_image.copy()
@@ -508,7 +552,8 @@ def render_edit_section():
                 st.session_state.label_image,
                 st.session_state.mapped_colors
             )
-            st.session_state.edit_dirty = False
+            st.session_state.edit_history.clear()
+            st.session_state.redo_history.clear()
 
 
 def main():
@@ -591,7 +636,8 @@ def main():
                     st.session_state.mapped_image = processor.create_mapped_image(label_image, mapped_colors)
                     st.session_state.original_mapped_image = st.session_state.mapped_image.copy()
                     st.session_state.last_click = None
-                    st.session_state.edit_dirty = False
+                    st.session_state.edit_history = []
+                    st.session_state.redo_history = []
 
                     pixel = processor.create_pixel_image(label_image, mapped_colors)
                     color_counts = processor.create_color_counts(label_image, mapped_colors)

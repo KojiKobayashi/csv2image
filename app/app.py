@@ -191,7 +191,7 @@ def upload_image_section():
 
 def render_roi_selection_ui(src_image, display_image, display_scale):
     """ROI選択UIを描画し、クリック座標を処理"""
-    with st.expander("🔲 矩形領域選択（オプション）", expanded=False):
+    with st.expander("🔲 画像内の領域を選択（オプション）", expanded=False):
         st.caption("デフォルトでは画像全体を処理します。特定の領域のみを処理したい場合に設定してください。")
         
         # 選択状態の表示

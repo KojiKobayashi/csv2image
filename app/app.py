@@ -10,11 +10,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from image2cells import ImageToPixels
-
-try:
-    from streamlit_image_coordinates import streamlit_image_coordinates
-except ImportError:
-    streamlit_image_coordinates = None
+from streamlit_image_coordinates import streamlit_image_coordinates
 
 
 # ==================== 定数定義 ====================
@@ -190,7 +186,7 @@ def upload_image_section():
     return uploaded_file
 
 
-def render_roi_selection_ui(src_image, display_image, display_scale):
+def render_roi_selection_ui(src_shape: tuple, display_image:np.ndarray, display_scale:float):
     """ROI選択UIを描画し、クリック座標を処理"""
     with st.expander("🔲 画像内の領域を選択（オプション）", expanded=False):
         st.caption("デフォルトでは画像全体を処理します。特定の領域のみを処理したい場合に設定してください。")
@@ -221,7 +217,7 @@ def render_roi_selection_ui(src_image, display_image, display_scale):
                 st.session_state.roi_p2 = None
                 st.session_state.last_click_coords = None
                 st.session_state.roi_selecting_point = None
-                height, width = src_image.shape[:2]
+                height, width = src_shape[:2]
                 st.session_state.roi_rect = (0, 0, width, height)
         
         st.markdown(
@@ -263,7 +259,8 @@ def render_roi_selection_ui(src_image, display_image, display_scale):
         display_image_copy = cv2.addWeighted(overlay, OVERLAY_ALPHA, display_image_copy, 1 - OVERLAY_ALPHA, 0)
     
     # 画像をクリック可能にして座標取得
-    coords = streamlit_image_coordinates(cv2.cvtColor(display_image_copy, cv2.COLOR_BGR2RGB), key="roi_selector")
+    coords = streamlit_image_coordinates(
+        source=cv2.cvtColor(display_image_copy, cv2.COLOR_BGR2RGB), key="roi_selector")
     
     if coords is not None and "x" in coords and "y" in coords:
         # クリック座標を元の画像サイズに変換
@@ -630,7 +627,7 @@ def main():
             display_image, display_scale = resize_for_display(src_image.copy())
             
             # ROI選択UI
-            render_roi_selection_ui(src_image, display_image, display_scale)
+            render_roi_selection_ui(src_image.shape, display_image, display_scale)
 
         # 処理ボタン
         if st.button("🚀 処理実行", use_container_width=True, type="primary"):

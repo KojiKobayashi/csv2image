@@ -23,3 +23,4 @@ uv run streamlit run .\app\app.py
 * いらない色を選択して再実行
 * 色を塗る箇所でundo
 * 色を塗る箇所でスポイト機能
+* セルの線を可変に

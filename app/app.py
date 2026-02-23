@@ -424,6 +424,10 @@ def render_edit_section():
     
     if "selected_color_idx" not in st.session_state:
         st.session_state.selected_color_idx = 0
+    if st.session_state.selected_color_idx >= len(st.session_state.mapped_colors):
+        st.session_state.selected_color_idx = 0
+    if "edit_dirty" not in st.session_state:
+        st.session_state.edit_dirty = False
     
     st.markdown("#### 🎯 色の選択")
     palette_cols = st.columns(6)
@@ -439,7 +443,16 @@ def render_edit_section():
     
     label_image = st.session_state.label_image
     processor = st.session_state.get("processor", ImageToPixels())
-    mapped_image = processor.create_mapped_image(label_image, st.session_state.mapped_colors)
+
+    if "mapped_image" not in st.session_state:
+        st.session_state.mapped_image = processor.create_mapped_image(
+            label_image,
+            st.session_state.mapped_colors
+        )
+    if "original_mapped_image" not in st.session_state:
+        st.session_state.original_mapped_image = st.session_state.mapped_image.copy()
+
+    mapped_image = st.session_state.mapped_image
     
     height, width = mapped_image.shape[:2]
     preview = cv2.resize(
@@ -458,7 +471,21 @@ def render_edit_section():
             cell_x = int(coords["x"] // edit_scale)
             cell_y = int(coords["y"] // edit_scale)
             if 0 <= cell_x < width and 0 <= cell_y < height:
-                st.session_state.label_image[cell_y, cell_x] = st.session_state.selected_color_idx
+                selected_idx = st.session_state.selected_color_idx
+                if int(st.session_state.label_image[cell_y, cell_x]) != selected_idx:
+                    st.session_state.label_image[cell_y, cell_x] = selected_idx
+                    selected_bgr = tuple(reversed(st.session_state.mapped_colors[selected_idx].rgb))
+                    st.session_state.mapped_image[cell_y, cell_x] = selected_bgr
+                    st.session_state.edit_dirty = True
+                    st.rerun()
+
+    if st.session_state.edit_dirty:
+        st.warning("未反映の編集があります。必要なら「✅ 編集内容を結果に反映」を押してください。")
+    
+    reset_col1, reset_col2, reset_col3 = st.columns([0.3, 0.2, 0.5])
+    with reset_col1:
+        if st.button("✅ 編集内容を結果に反映", type="primary"):
+            with st.spinner("結果画像を更新中..."):
                 st.session_state.result_pixel = processor.create_pixel_image(
                     st.session_state.label_image,
                     st.session_state.mapped_colors
@@ -467,12 +494,12 @@ def render_edit_section():
                     st.session_state.label_image,
                     st.session_state.mapped_colors
                 )
-                st.rerun()
-    
-    reset_col1, reset_col2 = st.columns([0.2, 0.8])
-    with reset_col1:
+                st.session_state.edit_dirty = False
+
+    with reset_col2:
         if st.button("↩️ リセット"):
             st.session_state.label_image = st.session_state.original_label_image.copy()
+            st.session_state.mapped_image = st.session_state.original_mapped_image.copy()
             st.session_state.result_pixel = processor.create_pixel_image(
                 st.session_state.label_image,
                 st.session_state.mapped_colors
@@ -481,6 +508,7 @@ def render_edit_section():
                 st.session_state.label_image,
                 st.session_state.mapped_colors
             )
+            st.session_state.edit_dirty = False
 
 
 def main():
@@ -560,7 +588,10 @@ def main():
                     st.session_state.label_image = label_image
                     st.session_state.original_label_image = label_image.copy()
                     st.session_state.mapped_colors = mapped_colors
+                    st.session_state.mapped_image = processor.create_mapped_image(label_image, mapped_colors)
+                    st.session_state.original_mapped_image = st.session_state.mapped_image.copy()
                     st.session_state.last_click = None
+                    st.session_state.edit_dirty = False
 
                     pixel = processor.create_pixel_image(label_image, mapped_colors)
                     color_counts = processor.create_color_counts(label_image, mapped_colors)
@@ -572,16 +603,25 @@ def main():
                 except Exception as e:
                     st.error(f"エラーが発生しました: {str(e)}")
 
-        # 結果の表示（col2 内）
+        # 結果の表示
         if "result_pixel" in st.session_state:
-            with col2:
-                render_result_image()
-            
-            # 詳細情報（全幅）
-            render_details_section(src_image)
-            
-            # 編集UI
-            if "label_image" in st.session_state and "mapped_colors" in st.session_state:
+            st.markdown("---")
+            st.subheader("👀 表示モード")
+            view_mode = st.radio(
+                "表示モード",
+                ["結果", "編集"],
+                index=0,
+                horizontal=True,
+                label_visibility="collapsed",
+                key="main_view_mode"
+            )
+            st.caption("編集タブで色を塗り、結果タブで出力画像と詳細情報を確認できます。")
+
+            if view_mode == "結果":
+                with col2:
+                    render_result_image()
+                render_details_section(src_image)
+            elif "label_image" in st.session_state and "mapped_colors" in st.session_state:
                 render_edit_section()
 
     else:

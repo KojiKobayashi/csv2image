@@ -51,18 +51,18 @@ def _ensure_tmp_dir():
 
 
 # ==================== ヘルパー関数 ====================
-def get_rgb_color_html(rgb_tuple):
+def get_rgb_color_html(rgb_tuple:tuple[int, int, int]) -> str:
     """RGB値をHTMLカラーコード形式に変換"""
     return f"rgb({rgb_tuple[0]}, {rgb_tuple[1]}, {rgb_tuple[2]})"
 
 
-def draw_color_sample(rgb_tuple, width=40, height=40):
+def draw_color_sample(rgb_tuple:tuple[int, int, int], width:int=40, height:int=40) -> str:
     """色見本HTMLを生成"""
     rgb_color = get_rgb_color_html(rgb_tuple)
     return f'<div style="width: {width}px; height: {height}px; background-color: {rgb_color}; border: 1px solid #ccc; border-radius: 4px;"></div>'
 
 
-def resize_for_display(image, max_width=MAX_DISPLAY_WIDTH):
+def resize_for_display(image:np.ndarray, max_width:int=MAX_DISPLAY_WIDTH) -> tuple[np.ndarray, float]:
     """画像を表示用にリサイズ"""
     orig_height, orig_width = image.shape[:2]
     if orig_width > max_width:
@@ -74,7 +74,7 @@ def resize_for_display(image, max_width=MAX_DISPLAY_WIDTH):
     return image, 1.0
 
 
-def create_colors_csv(mapped_colors):
+def create_colors_csv(mapped_colors:list) -> str:
     """色情報をCSV形式で生成"""
     colors_data = []
     for idx, color in enumerate(mapped_colors):
@@ -90,13 +90,13 @@ def create_colors_csv(mapped_colors):
     return colors_df.to_csv(index=False, encoding='utf-8-sig')
 
 
-def get_rect_dimensions(rect):
+def get_rect_dimensions(rect:tuple[int, int, int, int]) -> tuple[int, int]:
     """矩形情報から幅と高さを取得"""
     x1, y1, x2, y2 = rect
     return x2 - x1, y2 - y1
 
 
-def init_session_state(src_image):
+def init_session_state(src_image:np.ndarray):
     """セッション状態の初期化"""
     if "roi_p1" not in st.session_state:
         st.session_state.roi_p1 = None
@@ -186,7 +186,7 @@ def upload_image_section():
     return uploaded_file
 
 
-def render_roi_selection_ui(src_shape: tuple, display_image:np.ndarray, display_scale:float):
+def render_roi_selection_ui(src_shape: tuple[int, int, int], display_image:np.ndarray, display_scale:float):
     """ROI選択UIを描画し、クリック座標を処理"""
     with st.expander("🔲 画像内の領域を選択（オプション）", expanded=False):
         st.caption("デフォルトでは画像全体を処理します。特定の領域のみを処理したい場合に設定してください。")
@@ -291,7 +291,7 @@ def render_roi_selection_ui(src_shape: tuple, display_image:np.ndarray, display_
             st.rerun()
 
 
-def process_selected_roi(src_image, process_image):
+def process_selected_roi(src_image:np.ndarray, process_image:np.ndarray) -> np.ndarray|None:
     """ROIに基づいて画像を処理"""
     if st.session_state.roi_rect:
         x1, y1, x2, y2 = st.session_state.roi_rect
@@ -332,7 +332,7 @@ def render_result_image():
     st.image(st.session_state.result_pixel, use_container_width=True, channels="BGR")
 
 
-def render_details_section(src_image):
+def render_details_section(src_image:np.ndarray):
     """詳細情報セクション"""
     st.markdown("---")
     st.subheader("📊  詳細情報")

@@ -116,7 +116,7 @@ class ImageToPixels:
 
 
     # ==================== Private Methods ====================
-    def _remove_noise_ori(self, image):
+    def _remove_noise_ori(self, image:np.ndarray) -> np.ndarray:
         '''
         _remove_noise_ori：今のとこ未実装
         
@@ -126,13 +126,13 @@ class ImageToPixels:
         return image
 
 
-    def _remove_noise(self, image):
+    def _remove_noise(self, image:np.ndarray) -> np.ndarray:
         """TODO: 強すぎるのであまりやらないほうがいい、ノイズ除去 3×3のopening"""
         denoised_image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
         return denoised_image
 
 
-    def _median_cut(self, image):
+    def _median_cut(self, image:np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """メディアンカット法で色削減"""
         lab_image = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
 
@@ -158,7 +158,7 @@ class ImageToPixels:
         return quantized_image, labels.reshape((image.shape[0], image.shape[1])), centers
 
 
-    def _resize_image(self, image, new_width, src_height, src_width):
+    def _resize_image(self, image:np.ndarray, new_width:int, src_height:int, src_width:int) -> np.ndarray:
         """縦横比を保って画像をリサイズ"""
         if new_width <= 0:
             raise ValueError("new_width and new_height must be positive integers.")
@@ -171,7 +171,7 @@ class ImageToPixels:
         return resized_image
 
 
-    def _resize_image_2slim(self, image):
+    def _resize_image_2slim(self, image:np.ndarray) -> np.ndarray:
         """画像を縦に引き伸ばす"""
         if self._cell_height <= 0 or self._cell_width <= 0:
             raise ValueError("cell_height and cell_width must be positive integers.")
@@ -182,7 +182,7 @@ class ImageToPixels:
         return resized_image
 
 
-    def _image_to_pixelize(self, image):
+    def _image_to_pixelize(self, image:np.ndarray) -> np.ndarray:
         """画像のピクセル間の線を引く"""
         height, width = image.shape[:2]
 

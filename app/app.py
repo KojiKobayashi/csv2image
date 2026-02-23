@@ -427,22 +427,36 @@ def render_edit_section():
         st.session_state.selected_color_idx = 0
     if st.session_state.selected_color_idx >= len(st.session_state.mapped_colors):
         st.session_state.selected_color_idx = 0
+    if "editor_mode" not in st.session_state:
+        st.session_state.editor_mode = "塗る"
     if "edit_history" not in st.session_state:
         st.session_state.edit_history = []
     if "redo_history" not in st.session_state:
         st.session_state.redo_history = []
-    
-    st.markdown("#### 🎯 色の選択")
-    palette_cols = st.columns(6)
-    for idx, color in enumerate(st.session_state.mapped_colors):
-        with palette_cols[idx % 6]:
-            st.markdown(draw_color_sample(color.rgb, width=36, height=36), unsafe_allow_html=True)
-            label = "選択中" if idx == st.session_state.selected_color_idx else "選択"
-            if st.button(label, key=f"palette_{idx}"):
-                st.session_state.selected_color_idx = idx
-    
-    selected_color = st.session_state.mapped_colors[st.session_state.selected_color_idx]
-    st.markdown(f"選択中: {selected_color.type} ({selected_color.color_number})")
+
+    st.markdown("#### 🧰 操作モード")
+    mode_col1, mode_col2 = st.columns([0.65, 0.35])
+    with mode_col1:
+        editor_mode = st.radio(
+            "操作モード",
+            ["塗る", "スポイト"],
+            key="editor_mode",
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+    with mode_col2:
+        selected_color = st.session_state.mapped_colors[st.session_state.selected_color_idx]
+        st.markdown("**選択中色**")
+        selected_color_row1, selected_color_row2 = st.columns([0.3, 0.7])
+        with selected_color_row1:
+            st.markdown(draw_color_sample(selected_color.rgb, width=28, height=28), unsafe_allow_html=True)
+        with selected_color_row2:
+            st.caption(f"{selected_color.type} ({selected_color.color_number})")
+
+    if editor_mode == "スポイト":
+        st.caption("スポイトモード: 画像をクリックすると、そのセルの色が選択されます。")
+    else:
+        st.caption("塗るモード: 画像をクリックすると、選択中の色で塗ります。")
     
     label_image = st.session_state.label_image
     processor = st.session_state.get("processor", ImageToPixels())
@@ -465,7 +479,7 @@ def render_edit_section():
     )
     preview_rgb = cv2.cvtColor(preview, cv2.COLOR_BGR2RGB)
     
-    st.markdown("#### 🧭 クリックで塗る")
+    st.markdown("#### 🧭 クリック操作")
     coords = streamlit_image_coordinates(preview_rgb, key="editor_canvas")
     if coords is not None and "x" in coords and "y" in coords:
         click = (coords["x"], coords["y"])
@@ -474,22 +488,38 @@ def render_edit_section():
             cell_x = int(coords["x"] // edit_scale)
             cell_y = int(coords["y"] // edit_scale)
             if 0 <= cell_x < width and 0 <= cell_y < height:
-                selected_idx = st.session_state.selected_color_idx
-                prev_idx = int(st.session_state.label_image[cell_y, cell_x])
-                if prev_idx != selected_idx:
-                    st.session_state.label_image[cell_y, cell_x] = selected_idx
-                    selected_bgr = tuple(reversed(st.session_state.mapped_colors[selected_idx].rgb))
-                    st.session_state.mapped_image[cell_y, cell_x] = selected_bgr
-                    st.session_state.edit_history.append({
-                        "x": cell_x,
-                        "y": cell_y,
-                        "prev": prev_idx,
-                        "new": selected_idx
-                    })
-                    if len(st.session_state.edit_history) > DEFAULT_EDIT_HISTORY_LIMIT:
-                        st.session_state.edit_history.pop(0)
-                    st.session_state.redo_history.clear()
-                    st.rerun()
+                if editor_mode == "スポイト":
+                    picked_idx = int(st.session_state.label_image[cell_y, cell_x])
+                    if st.session_state.selected_color_idx != picked_idx:
+                        st.session_state.selected_color_idx = picked_idx
+                        st.rerun()
+                else:
+                    selected_idx = st.session_state.selected_color_idx
+                    prev_idx = int(st.session_state.label_image[cell_y, cell_x])
+                    if prev_idx != selected_idx:
+                        st.session_state.label_image[cell_y, cell_x] = selected_idx
+                        selected_bgr = tuple(reversed(st.session_state.mapped_colors[selected_idx].rgb))
+                        st.session_state.mapped_image[cell_y, cell_x] = selected_bgr
+                        st.session_state.edit_history.append({
+                            "x": cell_x,
+                            "y": cell_y,
+                            "prev": prev_idx,
+                            "new": selected_idx
+                        })
+                        if len(st.session_state.edit_history) > DEFAULT_EDIT_HISTORY_LIMIT:
+                            st.session_state.edit_history.pop(0)
+                        st.session_state.redo_history.clear()
+                        st.rerun()
+
+    st.markdown("#### 🎯 色の選択（サブ）")
+    palette_cols = st.columns(6)
+    for idx, color in enumerate(st.session_state.mapped_colors):
+        with palette_cols[idx % 6]:
+            st.markdown(draw_color_sample(color.rgb, width=36, height=36), unsafe_allow_html=True)
+            label = "選択中" if idx == st.session_state.selected_color_idx else "選択"
+            if st.button(label, key=f"palette_{idx}"):
+                st.session_state.selected_color_idx = idx
+                st.rerun()
 
     has_pending_edits = len(st.session_state.edit_history) > 0
     if has_pending_edits:
@@ -554,6 +584,7 @@ def render_edit_section():
             )
             st.session_state.edit_history.clear()
             st.session_state.redo_history.clear()
+            st.rerun()
 
 
 def main():

@@ -89,6 +89,8 @@ def create_colors_csv(mapped_colors:list) -> str:
             "色番": idx,
             "色名": color.type,
             "色コード": color.color_number,
+            "ASIN": color.asin,
+            "Amazonリンク": color.amazon_url,
             "R": color.rgb[0],
             "G": color.rgb[1],
             "B": color.rgb[2]
@@ -370,7 +372,7 @@ def render_details_section(src_image:np.ndarray):
     
     # 各色の情報を表示
     for idx, color in enumerate(st.session_state.color_counts):
-        col1, col2, col3 = st.columns([0.1, 0.45, 0.45])
+        col1, col2, col3, col4 = st.columns([0.1, 0.4, 0.3, 0.3])
         
         with col1:
             st.markdown(draw_color_sample(color.rgb), unsafe_allow_html=True)
@@ -380,6 +382,12 @@ def render_details_section(src_image:np.ndarray):
         
         with col3:
             st.metric("ピクセル数", f"{color.count:,}", label_visibility="collapsed")
+
+        with col4:
+            if color.amazon_url:
+                st.link_button("Amazon", color.amazon_url, use_container_width=True)
+            else:
+                st.caption("リンクなし")
     
     # 処理結果のダウンロード
     st.markdown("---")

@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import sys
+import csv
+import re
 from typing import List
 from pathlib import Path
 
@@ -9,19 +11,26 @@ import settings as cfg
 
 class Color:
     """色を表現するクラス"""
-    def __init__(self, type: str, color_number: str, rgb: list, lab: list):
+    def __init__(self, type: str, color_number: str, rgb: list, lab: list, asin: str = ""):
         self.type = type
         self.color_number = color_number
         self.rgb = rgb
         self.lab = lab
+        self.asin = asin.strip().upper()
+
+    @property
+    def amazon_url(self) -> str:
+        if not self.asin:
+            return ""
+        return f"https://www.amazon.co.jp/dp/{self.asin}?th=1"
 
     def __repr__(self):
-        return f"Color(type='{self.type}', number='{self.color_number}', rgb={self.rgb})"
+        return f"Color(type='{self.type}', number='{self.color_number}', rgb={self.rgb}, asin='{self.asin}')"
 
 class ColorCount(Color):
     """色とそのピクセル数を表現するクラス"""
-    def __init__(self, type: str, color_number: str, rgb: list, lab: list, count: int):
-        super().__init__(type, color_number, rgb, lab)
+    def __init__(self, type: str, color_number: str, rgb: list, lab: list, count: int, asin: str = ""):
+        super().__init__(type, color_number, rgb, lab, asin)
         self.count = count
 
     def __repr__(self):
@@ -245,7 +254,7 @@ class ImageToPixels:
     def create_color_counts(self, label_image: np.ndarray, mapped_colors: list[Color])-> list[ColorCount]:
         """label_imageのインデックスをmapped_colorsのRGBに変換して、色ごとのピクセル数をカウントする"""
         color_counts = _count_color_pixels(label_image)
-        color_counts = [ColorCount(color.type, color.color_number, color.rgb, color.lab, count)
+        color_counts = [ColorCount(color.type, color.color_number, color.rgb, color.lab, count, color.asin)
                         for color, count in zip(mapped_colors, color_counts)]
         color_counts = sorted(color_counts, key=lambda c: c.count, reverse=True)
         return color_counts
@@ -280,22 +289,64 @@ def display_image(image):
 # 系統,色番,R,G,B,コメント
 # 一行目はヘッダー
 def _load_color_csv(file_path: Path) -> list:
+    asin_pattern = re.compile(r"\b(B0[A-Z0-9]{8})\b", re.IGNORECASE)
+
+    def normalize_asin(raw: str) -> str:
+        text = (raw or "").strip()
+        if not text:
+            return ""
+        match = asin_pattern.search(text)
+        return match.group(1).upper() if match else ""
+
     colors = []
     with open(file_path, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-        for line in lines[1:]:
-            parts = line.strip().split(',')
-            if len(parts) != 6:
+        reader = csv.reader(f)
+        rows = list(reader)
+        if not rows:
+            return colors
+
+        header = [h.strip() for h in rows[0]]
+        asin_idx = header.index("ASIN") if "ASIN" in header else -1
+
+        for parts in rows[1:]:
+            if len(parts) < 5:
                 continue
-            system, color_number, r, g, b, _ = parts
-            rgb = [int(r), int(g), int(b)]
+
+            system = parts[0].strip()
+            color_number = parts[1].strip()
+            r = parts[2].strip()
+            g = parts[3].strip()
+            b = parts[4].strip()
+
+            if not (system and color_number and r and g and b):
+                continue
+
+            try:
+                rgb = [int(r), int(g), int(b)]
+            except ValueError:
+                continue
+
+            asin = ""
+            if asin_idx >= 0 and asin_idx < len(parts):
+                asin = normalize_asin(parts[asin_idx])
+            if not asin:
+                for part in parts[5:]:
+                    asin = normalize_asin(part)
+                    if asin:
+                        break
 
             # L*a*b*に変換
             rgb_mat = np.array([[rgb]], dtype=np.uint8)
             lab = cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist()
 
-            color = Color(system, color_number, rgb, lab)
+            if not asin:
+                continue
+
+            color = Color(system, color_number, rgb, lab, asin)
             colors.append(color)
+
+    if not colors:
+        raise ValueError("No colors with ASIN found in CSV.")
     return colors
 
 

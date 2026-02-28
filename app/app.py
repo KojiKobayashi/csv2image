@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import cv2
 import numpy as np
@@ -12,6 +13,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from image2cells import ImageToPixels
 from streamlit_image_coordinates import streamlit_image_coordinates
 
+def resource_path(*parts: str) -> Path:
+    base_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+    return base_dir.joinpath(*parts)
+
+# 例: 固定CSVの参照
+MERINO_RAINBOW_CSV = resource_path("data", "merinorainbow.csv")
 
 # ==================== 定数定義 ====================
 # UI設定
@@ -173,6 +180,9 @@ def setup_sidebar():
         "thick_line_interval": thick_line_interval,
         "denoise": denoise
     }
+
+    if st.sidebar.button("アプリを終了"):
+        os._exit(0)
 
 
 def upload_image_section():
@@ -656,7 +666,7 @@ def main():
                     st.session_state.processor = processor
 
                     # 処理実行
-                    label_image, mapped_colors = processor.create_label_image(process_image)
+                    label_image, mapped_colors = processor.create_label_image(process_image, MERINO_RAINBOW_CSV)
 
                     st.session_state.label_image = label_image
                     st.session_state.original_label_image = label_image.copy()

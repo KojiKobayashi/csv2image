@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import sys
 from typing import List
+from pathlib import Path
 
 import settings as cfg
 
@@ -203,7 +204,7 @@ class ImageToPixels:
 
     
     # ==================== Public Methods ====================
-    def create_label_image(self, src: np.ndarray)-> tuple[np.ndarray, list[Color]]:
+    def create_label_image(self, src: np.ndarray, csv_path: Path)-> tuple[np.ndarray, list[Color]]:
         """画像からcentersのインデックスの1channel画像を作成"""
 
         if max(src.shape) > 2048:
@@ -223,7 +224,7 @@ class ImageToPixels:
         if self._denoise:
             label_image = self._remove_noise(label_image)
 
-        palette = _load_color_csv("data/merinorainbow.csv")
+        palette = _load_color_csv(csv_path)
         mapped_colors = _map_colors_to_palette(centers, palette)
 
         return label_image, mapped_colors
@@ -250,7 +251,7 @@ class ImageToPixels:
         return color_counts
 
 
-    def run(self, filename: str|None = None, src: np.ndarray|None = None)-> tuple[np.ndarray, list[ColorCount]]:
+    def run(self, filename: str|None = None, src: np.ndarray|None = None, csv_path: Path|None = None)-> tuple[np.ndarray, list[ColorCount]]:
         if filename is not None:
             src = cv2.imread(filename)
             if src is None:
@@ -258,7 +259,10 @@ class ImageToPixels:
         elif src is None:
             raise ValueError("Either filename or src must be provided.")
         
-        label_image, mapped_colors = self.create_label_image(src)
+        if csv_path is None:
+            raise ValueError("CSV path must be provided.")
+
+        label_image, mapped_colors = self.create_label_image(src, csv_path)
         created_pixel_image = self.create_pixel_image(label_image, mapped_colors)
         color_counts = self.create_color_counts(label_image, mapped_colors)
         return created_pixel_image, color_counts
@@ -275,7 +279,7 @@ def display_image(image):
 # csv読み込み
 # 系統,色番,R,G,B,コメント
 # 一行目はヘッダー
-def _load_color_csv(file_path: str) -> list:
+def _load_color_csv(file_path: Path) -> list:
     colors = []
     with open(file_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()

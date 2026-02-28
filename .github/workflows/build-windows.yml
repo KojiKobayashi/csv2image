@@ -26,7 +26,12 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build with PyInstaller (onedir)
+      - name: Verify cv2 exists
+        shell: pwsh
+        run: |
+          python -c "import cv2; print(cv2.__version__)"
+
+      - name: Build with PyInstaller
         shell: pwsh
         run: |
           pyinstaller `
@@ -37,13 +42,13 @@ jobs:
             --windowed `
             --add-data "app;app" `
             --add-data "src;src" `
-            --hidden-import=streamlit `
-            --hidden-import=streamlit.web.cli `
-            --hidden-import=cv2 `
-            --hidden-import=pandas `
-            --hidden-import=numpy `
-            --hidden-import=PIL `
+            --add-data "data;data" `
             --collect-all streamlit `
+            --collect-all streamlit_image_coordinates `
+            --collect-all cv2 `
+            --collect-binaries cv2 `
+            --hidden-import=cv2 `
+            --hidden-import=psutil `
             app/launcher.py
 
       - name: Upload artifact

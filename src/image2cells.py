@@ -137,9 +137,18 @@ class ImageToPixels:
 
 
     def _remove_noise(self, image:np.ndarray) -> np.ndarray:
-        """TODO: 強すぎるのであまりやらないほうがいい、ノイズ除去 3×3のopening"""
-        denoised_image = cv2.morphologyEx(image, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
-        return denoised_image
+        """
+        行三ピクセルのうち、真ん中の色が左右どちらとも違う色の場合、真ん中の色を右の色に置き換える
+        """
+        height, width = image.shape[:2]
+        for i in range(height):
+            for j in range(1, width - 1):
+                left_color = image[i, j - 1]
+                center_color = image[i, j]
+                right_color = image[i, j + 1]
+                if not np.array_equal(center_color, left_color) and not np.array_equal(center_color, right_color):
+                    image[i, j] = right_color
+        return image
 
 
     def _median_cut(self, image:np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

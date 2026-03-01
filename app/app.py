@@ -89,7 +89,6 @@ def create_colors_csv(mapped_colors:list) -> str:
             "色番": idx,
             "色名": color.type,
             "色コード": color.color_number,
-            "ASIN": color.asin,
             "Amazonリンク": color.amazon_url,
             "R": color.rgb[0],
             "G": color.rgb[1],
@@ -122,7 +121,7 @@ def setup_sidebar():
     st.sidebar.header("⚙️ 設定")
     
     colors_number = st.sidebar.slider(
-        "量子化する色数",
+        "使用する色数",
         min_value=COLORS_NUMBER_RANGE[0],
         max_value=COLORS_NUMBER_RANGE[1],
         value=DEFAULT_COLORS_NUMBER,

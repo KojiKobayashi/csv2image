@@ -605,7 +605,7 @@ def main():
     """メインアプリケーション"""
     # ページ設定
     st.set_page_config(
-        page_title="CSV to Image - Image to Pixels",
+        page_title="編み図メーカー",
         page_icon="🎨",
         layout="wide",
         initial_sidebar_state="expanded"

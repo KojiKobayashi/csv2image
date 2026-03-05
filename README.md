@@ -2,6 +2,16 @@
 編み物とかで使うことがあるやつ
 
 # 使い方
+* 最新版をダウンロード
+Image2nitting-windows:
+https://github.com/KojiKobayashi/csv2image/actions/runs/22517283179
+* zip を適当なフォルダに展開
+* Image2nitting.exe　をダブルクリック
+  * windowsが警告を出すかもしれない
+* ブラウザが開くので作業開始
+
+
+# 以下開発版の実行方法
 
 ## 環境設定
 * なんとかしてpythonとuvを入れる

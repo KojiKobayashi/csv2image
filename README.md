@@ -2,9 +2,10 @@
 編み物とかで使うことがあるやつ
 
 # 使い方
-* 最新版をダウンロード
-Image2nitting-windows:
-https://github.com/KojiKobayashi/csv2image/actions/runs/22517283179
+* 最新版をダウンロード（READMEの更新不要な固定リンク）
+  * Release 一覧: https://github.com/KojiKobayashi/csv2image/releases
+  * 最新 Release: https://github.com/KojiKobayashi/csv2image/releases/latest
+  * Windows版zip: https://github.com/KojiKobayashi/csv2image/releases/latest/download/Image2nitting-windows.zip
 * zip を適当なフォルダに展開
 * Image2nitting.exe　をダブルクリック
   * windowsが警告を出すかもしれない

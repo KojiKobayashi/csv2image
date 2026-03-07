@@ -59,6 +59,13 @@ jobs:
         run: |
           Compress-Archive -Path dist/Image2nitting/* -DestinationPath Image2nitting-windows.zip -Force
 
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Image2nitting-windows
+          path: Image2nitting-windows.zip
+          retention-days: 14
+
       - name: Create/Update Release (tag build)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

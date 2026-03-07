@@ -44,6 +44,8 @@ EDIT_SCALE_RANGE = (4, 20)
 
 # 画像表示設定
 MAX_DISPLAY_WIDTH = 800
+MAX_ROI_DISPLAY_WIDTH = 560
+MAX_EDIT_DISPLAY_WIDTH = 700
 CIRCLE_RADIUS = 8
 CIRCLE_THICKNESS = -1
 RECTANGLE_THICKNESS = 3
@@ -70,7 +72,7 @@ def draw_color_sample(rgb_tuple:tuple[int, int, int], width:int=40, height:int=4
 
 
 def resize_for_display(image:np.ndarray, max_width:int=MAX_DISPLAY_WIDTH) -> tuple[np.ndarray, float]:
-    """画像を表示用にリサイズ"""
+    """画像を表示用にリサイズし、表示画像と縮小率を返す"""
     orig_height, orig_width = image.shape[:2]
     if orig_width > max_width:
         display_scale = max_width / orig_width
@@ -491,7 +493,12 @@ def render_edit_section():
         (width * edit_scale, height * edit_scale),
         interpolation=cv2.INTER_NEAREST
     )
-    preview_rgb = cv2.cvtColor(preview, cv2.COLOR_BGR2RGB)
+    # 横長画像でもUIからはみ出さないように、表示用だけ横幅を制限
+    preview_display, preview_display_scale = resize_for_display(
+        preview,
+        max_width=MAX_EDIT_DISPLAY_WIDTH
+    )
+    preview_rgb = cv2.cvtColor(preview_display, cv2.COLOR_BGR2RGB)
     
     st.markdown("#### 🧭 クリック操作")
     coords = streamlit_image_coordinates(preview_rgb, key="editor_canvas")
@@ -499,8 +506,10 @@ def render_edit_section():
         click = (coords["x"], coords["y"])
         if st.session_state.last_click != click:
             st.session_state.last_click = click
-            cell_x = int(coords["x"] // edit_scale)
-            cell_y = int(coords["y"] // edit_scale)
+            # 表示時に縮小している分を元スケールへ戻してセル位置を計算
+            effective_scale = edit_scale * preview_display_scale
+            cell_x = int(coords["x"] // effective_scale)
+            cell_y = int(coords["y"] // effective_scale)
             if 0 <= cell_x < width and 0 <= cell_y < height:
                 if editor_mode == "スポイト":
                     picked_idx = int(st.session_state.label_image[cell_y, cell_x])
@@ -611,6 +620,19 @@ def main():
         initial_sidebar_state="expanded"
     )
 
+    # 画像・キャンバス表示が親幅を超えた場合の表示崩れを抑える
+    st.markdown(
+        """
+<style>
+img, canvas {
+  max-width: 100% !important;
+  height: auto !important;
+}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
     # タイトル
     st.title("🎨 Image to Pixels Converter")
     st.markdown("画像をドット絵に変換します")
@@ -641,7 +663,11 @@ def main():
             st.subheader("元画像")
             
             # 画像を表示用にリサイズ
-            display_image, display_scale = resize_for_display(src_image.copy())
+            # 幅は実際のcol1の幅を最大値とする
+            display_image, display_scale = resize_for_display(
+                src_image.copy(),
+                max_width=MAX_ROI_DISPLAY_WIDTH
+            )
             
             # ROI選択UI
             render_roi_selection_ui(src_image.shape, display_image, display_scale)

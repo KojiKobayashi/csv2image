@@ -120,7 +120,8 @@ def init_session_state(src_image:np.ndarray):
 
 def setup_sidebar():
     """サイドバーの設定を行い、パラメータを返す"""
-    st.sidebar.header("⚙️ 設定")
+    st.sidebar.header("⚙️ Step 3: 変換設定")
+    st.sidebar.caption("まずは基本設定で処理し、必要なら詳細設定を調整してください。")
     
     colors_number = st.sidebar.slider(
         "使用する色数",
@@ -136,42 +137,49 @@ def setup_sidebar():
         value=DEFAULT_LINE_CELLS,
         step=8
     )
-    cell_height = st.sidebar.slider(
-        "セル高さ",
-        min_value=CELL_HEIGHT_RANGE[0],
-        max_value=CELL_HEIGHT_RANGE[1],
-        value=DEFAULT_CELL_HEIGHT,
-        step=1
-    )
-    cell_width = st.sidebar.slider(
-        "セル幅",
-        min_value=CELL_WIDTH_RANGE[0],
-        max_value=CELL_WIDTH_RANGE[1],
-        value=DEFAULT_CELL_WIDTH,
-        step=1
-    )
-    line_thickness = st.sidebar.slider(
-        "通常グリッド線の太さ",
-        min_value=LINE_THICKNESS_RANGE[0],
-        max_value=LINE_THICKNESS_RANGE[1],
-        value=DEFAULT_LINE_THICKNESS,
-        step=1
-    )
-    thick_line_thickness = st.sidebar.slider(
-        "太いグリッド線の太さ",
-        min_value=THICK_LINE_THICKNESS_RANGE[0],
-        max_value=THICK_LINE_THICKNESS_RANGE[1],
-        value=DEFAULT_THICK_LINE_THICKNESS,
-        step=1
-    )
-    thick_line_interval = st.sidebar.slider(
-        "太いグリッド線の間隔（セル数）",
-        min_value=THICK_LINE_INTERVAL_RANGE[0],
-        max_value=THICK_LINE_INTERVAL_RANGE[1],
-        value=DEFAULT_THICK_LINE_INTERVAL,
-        step=1
-    )
     denoise = st.sidebar.checkbox("ノイズ除去を有効にする", value=False)
+
+    with st.sidebar.expander("詳細設定", expanded=False):
+        cell_height = st.slider(
+            "セル高さ",
+            min_value=CELL_HEIGHT_RANGE[0],
+            max_value=CELL_HEIGHT_RANGE[1],
+            value=DEFAULT_CELL_HEIGHT,
+            step=1
+        )
+        cell_width = st.slider(
+            "セル幅",
+            min_value=CELL_WIDTH_RANGE[0],
+            max_value=CELL_WIDTH_RANGE[1],
+            value=DEFAULT_CELL_WIDTH,
+            step=1
+        )
+        line_thickness = st.slider(
+            "通常グリッド線の太さ",
+            min_value=LINE_THICKNESS_RANGE[0],
+            max_value=LINE_THICKNESS_RANGE[1],
+            value=DEFAULT_LINE_THICKNESS,
+            step=1
+        )
+        thick_line_thickness = st.slider(
+            "太いグリッド線の太さ",
+            min_value=THICK_LINE_THICKNESS_RANGE[0],
+            max_value=THICK_LINE_THICKNESS_RANGE[1],
+            value=DEFAULT_THICK_LINE_THICKNESS,
+            step=1
+        )
+        thick_line_interval = st.slider(
+            "太いグリッド線の間隔（セル数）",
+            min_value=THICK_LINE_INTERVAL_RANGE[0],
+            max_value=THICK_LINE_INTERVAL_RANGE[1],
+            value=DEFAULT_THICK_LINE_INTERVAL,
+            step=1
+        )
+
+    st.sidebar.markdown("---")
+    
+    if st.sidebar.button("アプリを終了"):
+        os._exit(0)
     
     return {
         "colors_number": colors_number,
@@ -184,16 +192,12 @@ def setup_sidebar():
         "denoise": denoise
     }
 
-    if st.sidebar.button("アプリを終了"):
-        os._exit(0)
-
 
 def upload_image_section():
     """画像アップロードUI"""
-    st.sidebar.markdown("---")
-    st.sidebar.header("📁 ファイル")
+    st.sidebar.header("📁 Step 1: 画像を選択")
     uploaded_file = st.sidebar.file_uploader(
-        "画像ファイルを選択",
+        "画像ファイルを選択してください",
         type=SUPPORTED_IMAGE_FORMATS
     )
     return uploaded_file
@@ -451,23 +455,20 @@ def render_edit_section():
         st.session_state.redo_history = []
 
     st.markdown("#### 🧰 操作モード")
-    mode_col1, mode_col2 = st.columns([0.65, 0.35])
-    with mode_col1:
-        editor_mode = st.radio(
-            "操作モード",
-            ["塗る", "スポイト"],
-            key="editor_mode",
-            horizontal=True,
-            label_visibility="collapsed"
-        )
-    with mode_col2:
-        selected_color = st.session_state.mapped_colors[st.session_state.selected_color_idx]
-        st.markdown("**選択中色**")
-        selected_color_row1, selected_color_row2 = st.columns([0.3, 0.7])
-        with selected_color_row1:
-            st.markdown(draw_color_sample(selected_color.rgb, width=28, height=28), unsafe_allow_html=True)
-        with selected_color_row2:
-            st.caption(f"{selected_color.type} ({selected_color.color_number})")
+    editor_mode = st.radio(
+        "操作モード",
+        ["塗る", "スポイト"],
+        key="editor_mode",
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+
+    selected_color = st.session_state.mapped_colors[st.session_state.selected_color_idx]
+    selected_col1, selected_col2 = st.columns([0.08, 0.92])
+    with selected_col1:
+        st.markdown(draw_color_sample(selected_color.rgb, width=24, height=24), unsafe_allow_html=True)
+    with selected_col2:
+        st.caption(f"選択中色: {selected_color.type} ({selected_color.color_number})")
 
     if editor_mode == "スポイト":
         st.caption("スポイトモード: 画像をクリックすると、そのセルの色が選択されます。")
@@ -628,6 +629,18 @@ img, canvas {
   max-width: 100% !important;
   height: auto !important;
 }
+
+/* 結果/編集タブを見やすくする */
+button[data-baseweb="tab"] p {
+    font-size: 1.05rem !important;
+    font-weight: 700 !important;
+}
+
+button[data-baseweb="tab"] {
+    min-height: 44px !important;
+    padding-top: 0.35rem !important;
+    padding-bottom: 0.35rem !important;
+}
 </style>
 """,
         unsafe_allow_html=True,
@@ -637,9 +650,23 @@ img, canvas {
     st.title("🎨 Image to Pixels Converter")
     st.markdown("画像をドット絵に変換します")
 
-    # サイドバーの設定
-    params = setup_sidebar()
+    st.sidebar.markdown("### 使い方")
+    st.sidebar.caption("1) 画像を選択 -> 2) 範囲を選択(任意) -> 3) 設定調整 -> 4) 処理実行")
+
+    # サイドバー: Step 1 -> Step 3
     uploaded_file = upload_image_section()
+    params = setup_sidebar()
+
+    st.sidebar.header("🚀 Step 4: 処理実行")
+    run_clicked = st.sidebar.button(
+        "処理を開始",
+        use_container_width=True,
+        type="primary",
+        disabled=uploaded_file is None,
+        key="run_process_button"
+    )
+    if uploaded_file is None:
+        st.sidebar.caption("画像をアップロードすると実行できます。")
 
     # メインコンテンツエリア
     if uploaded_file is not None:
@@ -672,8 +699,20 @@ img, canvas {
             # ROI選択UI
             render_roi_selection_ui(src_image.shape, display_image, display_scale)
 
-        # 処理ボタン
-        if st.button("🚀 処理実行", use_container_width=True, type="primary"):
+        with col2:
+            st.subheader("🧭 操作ガイド")
+            st.info("Step 2: 必要なら左画像で範囲を選択し、サイドバーの『処理を開始』を押してください。")
+            st.markdown(
+                f"""
+**現在の設定**
+- 色数: {params['colors_number']}
+- 横セル数: {params['number_of_line_cells']}
+- ノイズ除去: {'ON' if params['denoise'] else 'OFF'}
+"""
+            )
+
+        # 処理ボタン（サイドバーから）
+        if run_clicked:
             with st.spinner("処理中..."):
                 try:
                     # 処理対象の画像を決定
@@ -721,25 +760,21 @@ img, canvas {
                     st.error(f"エラーが発生しました: {str(e)}")
 
         # 結果の表示
-        if "result_pixel" in st.session_state:
-            st.markdown("---")
-            st.subheader("👀 表示モード")
-            view_mode = st.radio(
-                "表示モード",
-                ["結果", "編集"],
-                index=0,
-                horizontal=True,
-                label_visibility="collapsed",
-                key="main_view_mode"
-            )
-            st.caption("編集タブで色を塗り、結果タブで出力画像と詳細情報を確認できます。")
+        st.markdown("---")
+        tab_result, tab_edit = st.tabs(["結果", "編集"])
 
-            if view_mode == "結果":
-                with col2:
-                    render_result_image()
+        with tab_result:
+            if "result_pixel" in st.session_state:
+                render_result_image()
                 render_details_section(src_image)
-            elif "label_image" in st.session_state and "mapped_colors" in st.session_state:
+            else:
+                st.info("処理後に結果が表示されます。サイドバーの『処理を開始』を押してください。")
+
+        with tab_edit:
+            if "label_image" in st.session_state and "mapped_colors" in st.session_state:
                 render_edit_section()
+            else:
+                st.info("処理後に編集できます。まずは処理を実行してください。")
 
     else:
         # アップロード待機画面

@@ -106,6 +106,36 @@ def get_rect_dimensions(rect:tuple[int, int, int, int]) -> tuple[int, int]:
     return x2 - x1, y2 - y1
 
 
+def get_effective_roi_dimensions(src_shape: tuple[int, int, int]) -> tuple[int, int, str]:
+    """現在のROIから処理対象の幅・高さと表示ラベルを返す"""
+    src_height, src_width = src_shape[:2]
+    roi_rect = st.session_state.get("roi_rect")
+
+    if not roi_rect:
+        return src_width, src_height, "画像全体"
+
+    x1, y1, x2, y2 = roi_rect
+    width = max(1, min(src_width, x2) - max(0, x1))
+    height = max(1, min(src_height, y2) - max(0, y1))
+
+    is_full = x1 <= 0 and y1 <= 0 and x2 >= src_width and y2 >= src_height
+    label = "画像全体" if is_full else "選択矩形"
+    return width, height, label
+
+
+def estimate_vertical_cells(
+    target_width: int,
+    target_height: int,
+    horizontal_cells: int,
+    cell_width: int,
+    cell_height: int,
+) -> int:
+    """変換ロジックに合わせて縦セル数を推定"""
+    slim_height = target_height * (cell_width / cell_height)
+    vertical_cells = int(slim_height * (horizontal_cells / target_width))
+    return max(1, vertical_cells)
+
+
 def init_session_state(src_image:np.ndarray):
     """セッション状態の初期化"""
     if "roi_p1" not in st.session_state:
@@ -716,12 +746,22 @@ button[data-baseweb="tab"] {
 
         with col2:
             st.subheader("🧭 操作ガイド")
+            roi_width, roi_height, roi_label = get_effective_roi_dimensions(src_image.shape)
+            estimated_vertical_cells = estimate_vertical_cells(
+                target_width=roi_width,
+                target_height=roi_height,
+                horizontal_cells=params["number_of_line_cells"],
+                cell_width=params["cell_width"],
+                cell_height=params["cell_height"],
+            )
+
             st.info("Step 2: 必要なら左画像で範囲を選択し、サイドバーの『処理を開始』を押してください。")
             st.markdown(
                 f"""
 **現在の設定**
 - 色数: {params['colors_number']}
-- 横セル数: {params['number_of_line_cells']}
+- 対象: {roi_label} ({roi_width}×{roi_height}px)
+- セル数: 横 {params['number_of_line_cells']} × 縦 {estimated_vertical_cells}
 - ノイズ除去: {'ON' if params['denoise'] else 'OFF'}
 """
             )

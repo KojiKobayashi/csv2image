@@ -830,18 +830,6 @@ section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] {
 section[data-testid="stSidebar"] .st-key-exit_app_button {
     margin-top: auto;
 }
-
-/* 結果/編集タブを見やすくする */
-button[data-baseweb="tab"] p {
-    font-size: 1.05rem !important;
-    font-weight: 700 !important;
-}
-
-button[data-baseweb="tab"] {
-    min-height: 44px !important;
-    padding-top: 0.35rem !important;
-    padding-bottom: 0.35rem !important;
-}
 </style>
 """,
         unsafe_allow_html=True,

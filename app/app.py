@@ -153,19 +153,6 @@ def build_edit_operation(coords: np.ndarray, prev_idx: int, new_idx: int, op_typ
     }
 
 
-def get_operation_count(operation: dict) -> int:
-    """編集操作に含まれる変更数を返す"""
-    if "count" in operation:
-        return int(operation["count"])
-    if "coords" in operation:
-        return int(len(operation["coords"]))
-    if "changes" in operation:
-        return len(operation["changes"])
-    if all(key in operation for key in ("x", "y", "prev", "new")):
-        return 1
-    return 0
-
-
 def apply_edit_operation(operation: dict, use_new_value: bool):
     """編集操作を label_image / mapped_image に反映する"""
     if "coords" in operation:

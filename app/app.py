@@ -906,9 +906,22 @@ button[data-baseweb="tab"] {
         with col2:
             st.subheader("🧭 操作ガイド")
             roi_width, roi_height, roi_label = get_effective_roi_dimensions(src_image.shape)
+
+            # 実処理側（ImageToPixels.create_label_image）では、ROI画像は
+            # 最大辺が 2048px になるようにリサイズされてからセル数が決定される。
+            # 表示用のセル数推定でも同じルールを適用することで、表示と実処理の差異をなくす。
+            max_side = max(roi_width, roi_height)
+            if max_side > 2048:
+                scale = 2048 / max_side
+                scaled_roi_width = int(round(roi_width * scale))
+                scaled_roi_height = int(round(roi_height * scale))
+            else:
+                scaled_roi_width = roi_width
+                scaled_roi_height = roi_height
+
             estimated_vertical_cells = estimate_vertical_cells(
-                target_width=roi_width,
-                target_height=roi_height,
+                target_width=scaled_roi_width,
+                target_height=scaled_roi_height,
                 horizontal_cells=params["number_of_line_cells"],
                 cell_width=params["cell_width"],
                 cell_height=params["cell_height"],

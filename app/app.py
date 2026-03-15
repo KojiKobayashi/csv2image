@@ -769,23 +769,33 @@ button[data-baseweb="tab"] {
 
                     st.session_state.result_pixel = pixel
                     st.session_state.color_counts = color_counts
+                    st.session_state.active_view = "結果"
                     st.success("処理完了！")
 
                 except Exception as e:
                     st.error(f"エラーが発生しました: {str(e)}")
 
-        # 結果の表示
+        # 結果/編集の表示（再実行しても選択状態を保持）
         st.markdown("---")
-        tab_result, tab_edit = st.tabs(["結果", "編集"])
+        if "active_view" not in st.session_state:
+            st.session_state.active_view = "結果"
 
-        with tab_result:
+        st.markdown("#### 表示モード")
+        st.radio(
+            "表示モード",
+            ["結果", "編集"],
+            key="active_view",
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+
+        if st.session_state.active_view == "結果":
             if "result_pixel" in st.session_state:
                 render_result_image()
                 render_details_section(src_image)
             else:
                 st.info("処理後に結果が表示されます。サイドバーの『処理を開始』を押してください。")
-
-        with tab_edit:
+        else:
             if "label_image" in st.session_state and "mapped_colors" in st.session_state:
                 render_edit_section()
             else:

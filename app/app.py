@@ -45,7 +45,7 @@ EDIT_SCALE_RANGE = (4, 20)
 # 画像表示設定
 MAX_DISPLAY_WIDTH = 800
 MAX_ROI_DISPLAY_WIDTH = 560
-MAX_EDIT_DISPLAY_WIDTH = 700
+MAX_EDIT_DISPLAY_WIDTH = 1200
 CIRCLE_RADIUS = 8
 CIRCLE_THICKNESS = -1
 RECTANGLE_THICKNESS = 3
@@ -104,6 +104,99 @@ def get_rect_dimensions(rect:tuple[int, int, int, int]) -> tuple[int, int]:
     """矩形情報から幅と高さを取得"""
     x1, y1, x2, y2 = rect
     return x2 - x1, y2 - y1
+
+
+def get_effective_roi_dimensions(src_shape: tuple[int, int, int]) -> tuple[int, int, str]:
+    """現在のROIから処理対象の幅・高さと表示ラベルを返す"""
+    src_height, src_width = src_shape[:2]
+    roi_rect = st.session_state.get("roi_rect")
+
+    if not roi_rect:
+        return src_width, src_height, "画像全体"
+
+    x1, y1, x2, y2 = roi_rect
+    width = max(1, min(src_width, x2) - max(0, x1))
+    height = max(1, min(src_height, y2) - max(0, y1))
+
+    is_full = x1 <= 0 and y1 <= 0 and x2 >= src_width and y2 >= src_height
+    label = "画像全体" if is_full else "選択矩形"
+    return width, height, label
+
+
+def estimate_vertical_cells(
+    target_width: int,
+    target_height: int,
+    horizontal_cells: int,
+    cell_width: int,
+    cell_height: int,
+) -> int:
+    """変換ロジックに合わせて縦セル数を推定"""
+    slim_height = target_height * (cell_width / cell_height)
+    vertical_cells = int(slim_height * (horizontal_cells / target_width))
+    return max(1, vertical_cells)
+
+
+def format_color_option(color_idx: int, mapped_colors: list) -> str:
+    """色選択UI用の表示名を返す"""
+    color = mapped_colors[color_idx]
+    return f"{color.type} ({color.color_number})"
+
+
+def build_edit_operation(coords: np.ndarray, prev_idx: int, new_idx: int, op_type: str) -> dict:
+    """Undo/Redo 用の編集操作を構築"""
+    return {
+        "type": op_type,
+        "coords": np.asarray(coords, dtype=np.int32),
+        "prev": int(prev_idx),
+        "new": int(new_idx),
+        "count": int(len(coords)),
+    }
+
+
+def apply_edit_operation(operation: dict, use_new_value: bool):
+    """編集操作を label_image / mapped_image に反映する"""
+    if "coords" in operation:
+        coords = np.asarray(operation["coords"], dtype=np.int32)
+        if coords.size == 0:
+            return
+        target_idx = int(operation["new"] if use_new_value else operation["prev"])
+        ys = coords[:, 0]
+        xs = coords[:, 1]
+        st.session_state.label_image[ys, xs] = target_idx
+        target_bgr = tuple(reversed(st.session_state.mapped_colors[target_idx].rgb))
+        st.session_state.mapped_image[ys, xs] = target_bgr
+        return
+
+    if "changes" in operation:
+        for change in operation["changes"]:
+            target_idx = int(change["new"] if use_new_value else change["prev"])
+            x = int(change["x"])
+            y = int(change["y"])
+            st.session_state.label_image[y, x] = target_idx
+            target_bgr = tuple(reversed(st.session_state.mapped_colors[target_idx].rgb))
+            st.session_state.mapped_image[y, x] = target_bgr
+        return
+
+    if all(key in operation for key in ("x", "y", "prev", "new")):
+        target_idx = int(operation["new"] if use_new_value else operation["prev"])
+        x = int(operation["x"])
+        y = int(operation["y"])
+        st.session_state.label_image[y, x] = target_idx
+        target_bgr = tuple(reversed(st.session_state.mapped_colors[target_idx].rgb))
+        st.session_state.mapped_image[y, x] = target_bgr
+
+
+def push_edit_operation(operation: dict):
+    """編集履歴へ操作を追加"""
+    st.session_state.edit_history.append(operation)
+    if len(st.session_state.edit_history) > DEFAULT_EDIT_HISTORY_LIMIT:
+        st.session_state.edit_history.pop(0)
+    st.session_state.redo_history.clear()
+
+
+def set_replace_color_from_selected(target_key: str):
+    """現在の選択色を置換元/置換先へ反映"""
+    st.session_state[target_key] = st.session_state.selected_color_idx
 
 
 def init_session_state(src_image:np.ndarray):
@@ -176,11 +269,6 @@ def setup_sidebar():
             step=1
         )
 
-    st.sidebar.markdown("---")
-    
-    if st.sidebar.button("アプリを終了"):
-        os._exit(0)
-    
     return {
         "colors_number": colors_number,
         "number_of_line_cells": number_of_line_cells,
@@ -191,6 +279,13 @@ def setup_sidebar():
         "thick_line_interval": thick_line_interval,
         "denoise": denoise
     }
+
+
+def render_exit_button():
+    """サイドバー最下部に終了ボタンを表示"""
+    st.sidebar.markdown("---")
+    if st.sidebar.button("アプリを終了", use_container_width=True, key="exit_app_button"):
+        os._exit(0)
 
 
 def upload_image_section():
@@ -453,6 +548,25 @@ def render_edit_section():
         st.session_state.edit_history = []
     if "redo_history" not in st.session_state:
         st.session_state.redo_history = []
+    if "replace_source_idx" not in st.session_state:
+        st.session_state.replace_source_idx = 0
+    if "replace_target_idx" not in st.session_state:
+        st.session_state.replace_target_idx = 1 if len(st.session_state.mapped_colors) > 1 else 0
+
+    max_color_index = len(st.session_state.mapped_colors) - 1
+    st.session_state.replace_source_idx = min(st.session_state.replace_source_idx, max_color_index)
+    st.session_state.replace_target_idx = min(st.session_state.replace_target_idx, max_color_index)
+
+    notice = st.session_state.pop("edit_notice", None) if "edit_notice" in st.session_state else None
+    if notice:
+        notice_type = notice.get("type", "info")
+        notice_text = notice.get("text", "")
+        if notice_type == "success":
+            st.success(notice_text)
+        elif notice_type == "warning":
+            st.warning(notice_text)
+        else:
+            st.info(notice_text)
 
     st.markdown("#### 🧰 操作モード")
     editor_mode = st.radio(
@@ -521,18 +635,14 @@ def render_edit_section():
                     selected_idx = st.session_state.selected_color_idx
                     prev_idx = int(st.session_state.label_image[cell_y, cell_x])
                     if prev_idx != selected_idx:
-                        st.session_state.label_image[cell_y, cell_x] = selected_idx
-                        selected_bgr = tuple(reversed(st.session_state.mapped_colors[selected_idx].rgb))
-                        st.session_state.mapped_image[cell_y, cell_x] = selected_bgr
-                        st.session_state.edit_history.append({
-                            "x": cell_x,
-                            "y": cell_y,
-                            "prev": prev_idx,
-                            "new": selected_idx
-                        })
-                        if len(st.session_state.edit_history) > DEFAULT_EDIT_HISTORY_LIMIT:
-                            st.session_state.edit_history.pop(0)
-                        st.session_state.redo_history.clear()
+                        operation = build_edit_operation(
+                            coords=np.array([[cell_y, cell_x]], dtype=np.int32),
+                            prev_idx=prev_idx,
+                            new_idx=selected_idx,
+                            op_type="paint"
+                        )
+                        apply_edit_operation(operation, use_new_value=True)
+                        push_edit_operation(operation)
                         st.rerun()
 
     st.markdown("#### 🎯 色の選択（サブ）")
@@ -545,22 +655,105 @@ def render_edit_section():
                 st.session_state.selected_color_idx = idx
                 st.rerun()
 
+    with st.expander("🔁 色をまとめて置換", expanded=True):
+        st.caption("置換元と置換先を選んでから実行します。Undo / Redo の対象です。")
+
+        option_indices = list(range(len(st.session_state.mapped_colors)))
+
+        def format_color_select_option(idx: int) -> str:
+            return format_color_option(idx, st.session_state.mapped_colors)
+
+        replace_col1, replace_col_mid, replace_col2 = st.columns([1, 0.2, 1])
+        with replace_col1:
+            st.markdown("**1. 置換元**")
+            source_color = st.session_state.mapped_colors[st.session_state.replace_source_idx]
+            st.markdown(draw_color_sample(source_color.rgb, width=32, height=32), unsafe_allow_html=True)
+            st.selectbox(
+                "置換元の色",
+                options=option_indices,
+                key="replace_source_idx",
+                format_func=format_color_select_option,
+                label_visibility="collapsed"
+            )
+            st.button(
+                "選択中の色を反映",
+                use_container_width=True,
+                key="set_replace_source",
+                on_click=set_replace_color_from_selected,
+                args=("replace_source_idx",)
+            )
+
+        with replace_col_mid:
+            st.markdown("### →")
+
+        with replace_col2:
+            st.markdown("**2. 置換先**")
+            target_color = st.session_state.mapped_colors[st.session_state.replace_target_idx]
+            st.markdown(draw_color_sample(target_color.rgb, width=32, height=32), unsafe_allow_html=True)
+            st.selectbox(
+                "置換先の色",
+                options=option_indices,
+                key="replace_target_idx",
+                format_func=format_color_select_option,
+                label_visibility="collapsed"
+            )
+            st.button(
+                "選択中の色を反映",
+                use_container_width=True,
+                key="set_replace_target",
+                on_click=set_replace_color_from_selected,
+                args=("replace_target_idx",)
+            )
+
+        replace_source_idx = st.session_state.replace_source_idx
+        replace_target_idx = st.session_state.replace_target_idx
+        replace_count = int(np.count_nonzero(st.session_state.label_image == replace_source_idx))
+
+        st.markdown("**3. 実行**")
+        if replace_source_idx == replace_target_idx:
+            st.info("置換元と置換先が同じです。別の色を選んでください。")
+        elif replace_count == 0:
+            st.info("現在の画像には置換元のセルがありません。")
+        else:
+            st.caption(
+                f"{format_color_option(replace_source_idx, st.session_state.mapped_colors)} を "
+                f"{format_color_option(replace_target_idx, st.session_state.mapped_colors)} に "
+                f"{replace_count}セル置換します。"
+            )
+            if st.button("🔁 この内容で一括置換する（Undo可）", type="secondary", use_container_width=True, key="replace_colors_button"):
+                coords = np.argwhere(st.session_state.label_image == replace_source_idx)
+                operation = build_edit_operation(
+                    coords=coords,
+                    prev_idx=replace_source_idx,
+                    new_idx=replace_target_idx,
+                    op_type="replace"
+                )
+                apply_edit_operation(operation, use_new_value=True)
+                push_edit_operation(operation)
+                st.session_state.edit_notice = {
+                    "type": "success",
+                    "text": (
+                        f"{format_color_option(replace_source_idx, st.session_state.mapped_colors)} → "
+                        f"{format_color_option(replace_target_idx, st.session_state.mapped_colors)} を "
+                        f"{replace_count}セル置換しました。Undo で戻せます。"
+                    )
+                }
+                st.rerun()
+
     has_pending_edits = len(st.session_state.edit_history) > 0
     if has_pending_edits:
         st.warning("未反映の編集があります。必要なら「✅ 編集内容を結果に反映」を押してください。")
         st.caption(
             f"未反映の編集数: {len(st.session_state.edit_history)} / 履歴上限: {DEFAULT_EDIT_HISTORY_LIMIT}"
         )
+        st.caption("Undo / Redo は単セル編集と一括置換の両方に効きます。")
     
     action_col1, action_col2, action_col3 = st.columns([0.2, 0.2, 0.3])
     with action_col1:
         if st.button("↶ Undo", use_container_width=True):
             if st.session_state.edit_history:
                 op = st.session_state.edit_history.pop()
-                x, y, prev_idx = op["x"], op["y"], op["prev"]
-                st.session_state.label_image[y, x] = prev_idx
-                prev_bgr = tuple(reversed(st.session_state.mapped_colors[prev_idx].rgb))
-                st.session_state.mapped_image[y, x] = prev_bgr
+                apply_edit_operation(op, use_new_value=False)
                 st.session_state.redo_history.append(op)
                 if len(st.session_state.redo_history) > DEFAULT_EDIT_HISTORY_LIMIT:
                     st.session_state.redo_history.pop(0)
@@ -570,10 +763,7 @@ def render_edit_section():
         if st.button("↷ Redo", use_container_width=True):
             if st.session_state.redo_history:
                 op = st.session_state.redo_history.pop()
-                x, y, new_idx = op["x"], op["y"], op["new"]
-                st.session_state.label_image[y, x] = new_idx
-                new_bgr = tuple(reversed(st.session_state.mapped_colors[new_idx].rgb))
-                st.session_state.mapped_image[y, x] = new_bgr
+                apply_edit_operation(op, use_new_value=True)
                 st.session_state.edit_history.append(op)
                 if len(st.session_state.edit_history) > DEFAULT_EDIT_HISTORY_LIMIT:
                     st.session_state.edit_history.pop(0)
@@ -630,16 +820,15 @@ img, canvas {
   height: auto !important;
 }
 
-/* 結果/編集タブを見やすくする */
-button[data-baseweb="tab"] p {
-    font-size: 1.05rem !important;
-    font-weight: 700 !important;
+/* サイドバーの終了ボタンを最下部に固定 */
+section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
 }
 
-button[data-baseweb="tab"] {
-    min-height: 44px !important;
-    padding-top: 0.35rem !important;
-    padding-bottom: 0.35rem !important;
+section[data-testid="stSidebar"] .st-key-exit_app_button {
+    margin-top: auto;
 }
 </style>
 """,
@@ -648,7 +837,8 @@ button[data-baseweb="tab"] {
 
     # タイトル
     st.title("🎨 Image to Pixels Converter")
-    st.markdown("画像をドット絵に変換します")
+    st.markdown("画像を編み図で使えるドット絵に変換します")
+    st.markdown("ユザワヤ(Yuzawaya) 毛糸 mansell をベースにした色変換を行います")
 
     st.sidebar.markdown("### 使い方")
     st.sidebar.caption("1) 画像を選択 -> 2) 範囲を選択(任意) -> 3) 設定調整 -> 4) 処理実行")
@@ -667,6 +857,8 @@ button[data-baseweb="tab"] {
     )
     if uploaded_file is None:
         st.sidebar.caption("画像をアップロードすると実行できます。")
+
+    render_exit_button()
 
     # メインコンテンツエリア
     if uploaded_file is not None:
@@ -701,12 +893,35 @@ button[data-baseweb="tab"] {
 
         with col2:
             st.subheader("🧭 操作ガイド")
+            roi_width, roi_height, roi_label = get_effective_roi_dimensions(src_image.shape)
+
+            # 実処理側（ImageToPixels.create_label_image）では、ROI画像は
+            # 最大辺が 2048px になるようにリサイズされてからセル数が決定される。
+            # 表示用のセル数推定でも同じルールを適用することで、表示と実処理の差異をなくす。
+            max_side = max(roi_width, roi_height)
+            if max_side > 2048:
+                scale = 2048 / max_side
+                scaled_roi_width = int(round(roi_width * scale))
+                scaled_roi_height = int(round(roi_height * scale))
+            else:
+                scaled_roi_width = roi_width
+                scaled_roi_height = roi_height
+
+            estimated_vertical_cells = estimate_vertical_cells(
+                target_width=scaled_roi_width,
+                target_height=scaled_roi_height,
+                horizontal_cells=params["number_of_line_cells"],
+                cell_width=params["cell_width"],
+                cell_height=params["cell_height"],
+            )
+
             st.info("Step 2: 必要なら左画像で範囲を選択し、サイドバーの『処理を開始』を押してください。")
             st.markdown(
                 f"""
 **現在の設定**
 - 色数: {params['colors_number']}
-- 横セル数: {params['number_of_line_cells']}
+- 対象: {roi_label} ({roi_width}×{roi_height}px)
+- セル数: 横 {params['number_of_line_cells']} × 縦 {estimated_vertical_cells}
 - ノイズ除去: {'ON' if params['denoise'] else 'OFF'}
 """
             )
@@ -754,23 +969,33 @@ button[data-baseweb="tab"] {
 
                     st.session_state.result_pixel = pixel
                     st.session_state.color_counts = color_counts
+                    st.session_state.active_view = "結果"
                     st.success("処理完了！")
 
                 except Exception as e:
                     st.error(f"エラーが発生しました: {str(e)}")
 
-        # 結果の表示
+        # 結果/編集の表示（再実行しても選択状態を保持）
         st.markdown("---")
-        tab_result, tab_edit = st.tabs(["結果", "編集"])
+        if "active_view" not in st.session_state:
+            st.session_state.active_view = "結果"
 
-        with tab_result:
+        st.markdown("#### 表示モード")
+        st.radio(
+            "表示モード",
+            ["結果", "編集"],
+            key="active_view",
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+
+        if st.session_state.active_view == "結果":
             if "result_pixel" in st.session_state:
                 render_result_image()
                 render_details_section(src_image)
             else:
                 st.info("処理後に結果が表示されます。サイドバーの『処理を開始』を押してください。")
-
-        with tab_edit:
+        else:
             if "label_image" in st.session_state and "mapped_colors" in st.session_state:
                 render_edit_section()
             else:

@@ -691,7 +691,8 @@ button[data-baseweb="tab"] {
 
     # タイトル
     st.title("🎨 Image to Pixels Converter")
-    st.markdown("画像をドット絵に変換します")
+    st.markdown("画像を編み図で使えるドット絵に変換します")
+    st.markdown("ユザワヤ(Yuzawaya) 毛糸 mansell をベースにした色変換を行います")
 
     st.sidebar.markdown("### 使い方")
     st.sidebar.caption("1) 画像を選択 -> 2) 範囲を選択(任意) -> 3) 設定調整 -> 4) 処理実行")

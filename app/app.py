@@ -176,11 +176,6 @@ def setup_sidebar():
             step=1
         )
 
-    st.sidebar.markdown("---")
-    
-    if st.sidebar.button("アプリを終了"):
-        os._exit(0)
-    
     return {
         "colors_number": colors_number,
         "number_of_line_cells": number_of_line_cells,
@@ -191,6 +186,13 @@ def setup_sidebar():
         "thick_line_interval": thick_line_interval,
         "denoise": denoise
     }
+
+
+def render_exit_button():
+    """サイドバー最下部に終了ボタンを表示"""
+    st.sidebar.markdown("---")
+    if st.sidebar.button("アプリを終了", use_container_width=True, key="exit_app_button"):
+        os._exit(0)
 
 
 def upload_image_section():
@@ -630,6 +632,17 @@ img, canvas {
   height: auto !important;
 }
 
+/* サイドバーの終了ボタンを最下部に固定 */
+section[data-testid="stSidebar"] div[data-testid="stSidebarUserContent"] {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+section[data-testid="stSidebar"] .st-key-exit_app_button {
+    margin-top: auto;
+}
+
 /* 結果/編集タブを見やすくする */
 button[data-baseweb="tab"] p {
     font-size: 1.05rem !important;
@@ -667,6 +680,8 @@ button[data-baseweb="tab"] {
     )
     if uploaded_file is None:
         st.sidebar.caption("画像をアップロードすると実行できます。")
+
+    render_exit_button()
 
     # メインコンテンツエリア
     if uploaded_file is not None:

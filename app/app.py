@@ -89,11 +89,11 @@ def build_color_code_grid(label_image: np.ndarray, mapped_colors: list) -> np.nd
 
 
 def create_color_code_csv(color_code_grid: np.ndarray) -> bytes:
-    """color_code_gridからCSVを生成する（UTF-8 BOM付きのバイト列を返す）"""
+    """color_code_gridからCSVを生成する（UTF-8・BOMなしのバイト列を返す）"""
     # 画像と同じ配置（行=y、列=x）のままCSV化
     df = pd.DataFrame(color_code_grid)
     csv_str = df.to_csv(index=False, header=False)
-    return csv_str.encode("utf-8-sig")
+    return csv_str.encode("utf-8")
 
 
 def build_color_code_cache_key(
@@ -234,7 +234,7 @@ def create_colors_csv(mapped_colors:list) -> str:
             "B": color.rgb[2]
         })
     colors_df = pd.DataFrame(colors_data)
-    return colors_df.to_csv(index=False, encoding='utf-8-sig')
+    return colors_df.to_csv(index=False)
 
 
 def get_rect_dimensions(rect:tuple[int, int, int, int]) -> tuple[int, int]:

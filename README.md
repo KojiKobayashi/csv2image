@@ -27,6 +27,13 @@
 uv run streamlit run .\app\app.py
 ```
 
+## CSV仕様（エンコード）
+* 出力CSVは UTF-8（BOMなし）で統一
+  * 色コード配列CSV
+  * 毛糸色情報CSV
+* 入力CSVは UTF-8 / UTF-8 BOM付き の両方を受け付け
+  * BOM付きCSVを読み込んでも先頭列名が崩れないように処理
+
 # TODO
 * 色数を減らして再実行
 * アスペクト比を保って矩形選択

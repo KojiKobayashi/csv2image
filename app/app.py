@@ -398,11 +398,13 @@ def setup_sidebar():
             value=DEFAULT_LINE_THICKNESS,
             step=1
         )
+        thick_line_min = max(THICK_LINE_THICKNESS_RANGE[0], line_thickness)
+        thick_line_default = max(DEFAULT_THICK_LINE_THICKNESS, thick_line_min)
         thick_line_thickness = st.slider(
             "太いグリッド線の太さ",
-            min_value=THICK_LINE_THICKNESS_RANGE[0],
+            min_value=thick_line_min,
             max_value=THICK_LINE_THICKNESS_RANGE[1],
-            value=DEFAULT_THICK_LINE_THICKNESS,
+            value=thick_line_default,
             step=1
         )
         thick_line_interval = st.slider(

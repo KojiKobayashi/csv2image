@@ -79,10 +79,24 @@ def get_contrast_text_color(bgr_tuple: tuple[int, int, int]) -> tuple[int, int, 
     return (0, 0, 0) if brightness >= TEXT_BRIGHTNESS_THRESHOLD else (255, 255, 255)
 
 
+def build_color_code_grid(label_image: np.ndarray, mapped_colors: list) -> np.ndarray:
+    """セル(y, x)ごとの色コード文字列を格納した (height, width) の配列を返す"""
+    codes = np.array([str(c.color_number) for c in mapped_colors], dtype=object)
+    safe_idx = np.clip(label_image.astype(np.int32), 0, len(mapped_colors) - 1)
+    return codes[safe_idx]
+
+
+def create_color_code_csv(color_code_grid: np.ndarray) -> str:
+    """color_code_gridからCSVを生成する"""
+    df = pd.DataFrame(color_code_grid)
+    return df.to_csv(index=False, header=False, encoding='utf-8-sig')
+
+
 def create_color_code_pixel_image(
     label_image: np.ndarray,
     mapped_colors: list,
     processor: ImageToPixels,
+    color_code_grid: np.ndarray,
 ) -> np.ndarray:
     """各セル中央に色コードを重ねたドット絵画像を作成する"""
     coded_pixel = processor.create_pixel_image(label_image, mapped_colors)
@@ -105,36 +119,32 @@ def create_color_code_pixel_image(
         for x in range(width)
     ]
 
-    color_text_cache = {}
+    # 描画パラメータのみをキャッシュ（テキスト文字列は color_code_grid から取得）
+    render_cache = {}
     for idx, color in enumerate(mapped_colors):
         color_code = str(color.color_number).strip()
         if not color_code:
-            color_text_cache[idx] = None
+            render_cache[idx] = None
             continue
 
         font_scale = base_font_scale
         thickness = max(1, int(round(font_scale)))
-        text_size, baseline = cv2.getTextSize(color_code, font, font_scale, thickness)
+        text_size, _ = cv2.getTextSize(color_code, font, font_scale, thickness)
         text_w, text_h = text_size
 
         while (text_w > cell_w - 2 or text_h > cell_h - 2) and font_scale > 0.2:
             font_scale *= 0.9
             thickness = max(1, int(round(font_scale)))
-            text_size, baseline = cv2.getTextSize(color_code, font, font_scale, thickness)
+            text_size, _ = cv2.getTextSize(color_code, font, font_scale, thickness)
             text_w, text_h = text_size
 
-        offset_x = max(0, (cell_w - text_w) // 2)
-        offset_y = max(text_h, (cell_h + text_h) // 2)
         cell_bgr = tuple(int(v) for v in reversed(color.rgb))
-        text_color = get_contrast_text_color(cell_bgr)
-
-        color_text_cache[idx] = {
-            "text": color_code,
+        render_cache[idx] = {
             "font_scale": font_scale,
             "thickness": thickness,
-            "offset_x": offset_x,
-            "offset_y": offset_y,
-            "text_color": text_color,
+            "offset_x": max(0, (cell_w - text_w) // 2),
+            "offset_y": max(text_h, (cell_h + text_h) // 2),
+            "text_color": get_contrast_text_color(cell_bgr),
         }
 
     for y in range(height):
@@ -144,22 +154,23 @@ def create_color_code_pixel_image(
             if color_idx >= len(mapped_colors):
                 continue
 
-            text_params = color_text_cache.get(color_idx)
-            if not text_params:
+            params = render_cache.get(color_idx)
+            if params is None:
+                continue
+
+            text = color_code_grid[y, x]
+            if not text:
                 continue
 
             start_x = col_starts[x]
-            text_x = start_x + text_params["offset_x"]
-            text_y = start_y + text_params["offset_y"]
-
             cv2.putText(
                 coded_pixel,
-                text_params["text"],
-                (text_x, text_y),
+                text,
+                (start_x + params["offset_x"], start_y + params["offset_y"]),
                 font,
-                text_params["font_scale"],
-                text_params["text_color"],
-                text_params["thickness"],
+                params["font_scale"],
+                params["text_color"],
+                params["thickness"],
                 cv2.LINE_AA,
             )
 
@@ -590,20 +601,26 @@ def render_details_section(src_image:np.ndarray):
     
     colors_csv = create_colors_csv(st.session_state.mapped_colors)
     
-    # ダウンロード用画像
+    # ダウンロード用データ生成
     _, img_bytes = cv2.imencode('.png', st.session_state.result_pixel)
     img_buffer = io.BytesIO(img_bytes)
     processor = st.session_state.get("processor", ImageToPixels())
+    color_code_grid = build_color_code_grid(
+        st.session_state.label_image,
+        st.session_state.mapped_colors,
+    )
     coded_pixel = create_color_code_pixel_image(
         st.session_state.label_image,
         st.session_state.mapped_colors,
         processor,
+        color_code_grid,
     )
     _, coded_img_bytes = cv2.imencode('.png', coded_pixel)
     coded_img_buffer = io.BytesIO(coded_img_bytes)
-    
+    color_code_csv = create_color_code_csv(color_code_grid)
+
     # ダウンロードボタン
-    col_img, col_code_img, col_csv = st.columns(3)
+    col_img, col_code_img, col_csv, col_code_csv = st.columns(4)
     
     with col_img:
         st.download_button(
@@ -628,6 +645,15 @@ def render_details_section(src_image:np.ndarray):
             label="📊 色情報をダウンロード",
             data=colors_csv,
             file_name="color_palette.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+    with col_code_csv:
+        st.download_button(
+            label="📋 色コードCSVをダウンロード",
+            data=color_code_csv,
+            file_name="color_code_map.csv",
             mime="text/csv",
             use_container_width=True
         )

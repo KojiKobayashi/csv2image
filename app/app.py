@@ -684,7 +684,7 @@ def render_details_section(src_image:np.ndarray):
     ret, img_bytes = cv2.imencode('.png', st.session_state.result_pixel)
     img_buffer = img_bytes.tobytes() if ret else None
 
-    processor = st.session_state.get("processor", ImageToPixels())
+    processor = st.session_state.get("processor") or ImageToPixels()
     base_label_image = st.session_state.original_label_image
 
     color_code_cache_key = build_color_code_cache_key(

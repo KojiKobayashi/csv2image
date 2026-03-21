@@ -367,7 +367,7 @@ def _load_color_csv(csv_bytes_io: io.BytesIO) -> list:
 
         # L*a*b*に変換
         rgb_mat = np.array([[rgb]], dtype=np.uint8)
-        lab = cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist()
+        lab = tuple(cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist())
 
         color = Color(system, color_number, rgb, lab, asin)
         colors.append(color)

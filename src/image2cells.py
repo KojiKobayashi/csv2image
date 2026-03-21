@@ -348,14 +348,11 @@ def _load_color_csv(file_path: Path) -> list:
             rgb_mat = np.array([[rgb]], dtype=np.uint8)
             lab = cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist()
 
-            if not asin:
-                continue
-
             color = Color(system, color_number, rgb, lab, asin)
             colors.append(color)
 
     if not colors:
-        raise ValueError("No colors with ASIN found in CSV.")
+        raise ValueError("CSVに有効な色データが見つかりませんでした。ヘッダー行と、系統・色番・R・G・B の5列以上が必要です。")
     return colors
 
 

@@ -319,7 +319,7 @@ def init_session_state(src_image:np.ndarray):
 
 def setup_sidebar():
     """サイドバーの設定を行い、パラメータを返す"""
-    st.sidebar.header("⚙️ Step 3: 変換設定")
+    st.sidebar.header("⚙️ Step 4: 変換設定")
     st.sidebar.caption("まずは基本設定で処理し、必要なら詳細設定を調整してください。")
     
     colors_number = st.sidebar.slider(
@@ -402,6 +402,34 @@ def upload_image_section():
         type=SUPPORTED_IMAGE_FORMATS
     )
     return uploaded_file
+
+
+def upload_csv_section() -> Path:
+    """毛糸CSVアップロードUI。使用するCSVの Path を返す"""
+    st.sidebar.header("🧶 Step 2: 毛糸CSVを選択（任意）")
+    st.sidebar.caption(
+        "デフォルトはメリノレインボーCSVを使用します。"
+        "別の毛糸を使う場合はCSVをアップロードしてください。"
+    )
+    uploaded_csv = st.sidebar.file_uploader(
+        "毛糸CSVファイル（任意）",
+        type=["csv"],
+        key="csv_uploader"
+    )
+
+    if uploaded_csv is not None:
+        _ensure_tmp_dir()
+        tmp_csv_path = Path("./tmp/uploaded_color.csv")
+        csv_bytes = uploaded_csv.read()
+        # 内容が変わったときだけ書き込む（再レンダリングのたびに書かない）
+        if st.session_state.get("_uploaded_csv_bytes") != csv_bytes:
+            st.session_state._uploaded_csv_bytes = csv_bytes
+            tmp_csv_path.write_bytes(csv_bytes)
+        st.sidebar.success(f"📄 使用中: {uploaded_csv.name}")
+        return tmp_csv_path
+    else:
+        st.sidebar.caption("📄 使用中: merinorainbow.csv（デフォルト）")
+        return MERINO_RAINBOW_CSV
 
 
 def render_roi_selection_ui(src_shape: tuple[int, int, int], display_image:np.ndarray, display_scale:float):
@@ -996,13 +1024,14 @@ section[data-testid="stSidebar"] .st-key-exit_app_button {
     st.markdown("ユザワヤ(Yuzawaya) 毛糸 mansell をベースにした色変換を行います")
 
     st.sidebar.markdown("### 使い方")
-    st.sidebar.caption("1) 画像を選択 -> 2) 範囲を選択(任意) -> 3) 設定調整 -> 4) 処理実行")
+    st.sidebar.caption("1) 画像を選択 -> 2) CSVを選択(任意) -> 3) 範囲を選択(任意) -> 4) 設定調整 -> 5) 処理実行")
 
-    # サイドバー: Step 1 -> Step 3
+    # サイドバー: Step 1 -> Step 4
     uploaded_file = upload_image_section()
+    csv_path = upload_csv_section()
     params = setup_sidebar()
 
-    st.sidebar.header("🚀 Step 4: 処理実行")
+    st.sidebar.header("🚀 Step 5: 処理実行")
     run_clicked = st.sidebar.button(
         "処理を開始",
         use_container_width=True,
@@ -1070,7 +1099,7 @@ section[data-testid="stSidebar"] .st-key-exit_app_button {
                 cell_height=params["cell_height"],
             )
 
-            st.info("Step 2: 必要なら左画像で範囲を選択し、サイドバーの『処理を開始』を押してください。")
+            st.info("Step 3: 必要なら左画像で範囲を選択し、サイドバーの『処理を開始』を押してください。")
             st.markdown(
                 f"""
 **現在の設定**
@@ -1108,7 +1137,7 @@ section[data-testid="stSidebar"] .st-key-exit_app_button {
                     st.session_state.processor = processor
 
                     # 処理実行
-                    label_image, mapped_colors = processor.create_label_image(process_image, MERINO_RAINBOW_CSV)
+                    label_image, mapped_colors = processor.create_label_image(process_image, csv_path)
 
                     st.session_state.label_image = label_image
                     st.session_state.original_label_image = label_image.copy()

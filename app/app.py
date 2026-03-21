@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import io
 import hashlib
+import uuid
 import pandas as pd
 
 # srcフォルダをPythonパスに追加
@@ -447,12 +448,20 @@ def upload_csv_section() -> Path:
 
     if uploaded_csv is not None:
         _ensure_tmp_dir()
-        tmp_csv_path = Path("./tmp/uploaded_color.csv")
+        if "csv_upload_session_id" not in st.session_state:
+            st.session_state.csv_upload_session_id = uuid.uuid4().hex[:8]
+
         csv_bytes = uploaded_csv.read()
-        # 内容が変わったときだけ書き込む（再レンダリングのたびに書かない）
-        if st.session_state.get("_uploaded_csv_bytes") != csv_bytes:
-            st.session_state._uploaded_csv_bytes = csv_bytes
+        content_hash = hashlib.blake2b(csv_bytes, digest_size=8).hexdigest()
+        tmp_csv_path = Path(
+            f"./tmp/uploaded_color_{st.session_state.csv_upload_session_id}_{content_hash}.csv"
+        )
+
+        # セッションごとの一時ファイルを作成（既存なら再利用）
+        if not tmp_csv_path.exists():
             tmp_csv_path.write_bytes(csv_bytes)
+
+        st.session_state.uploaded_csv_path = str(tmp_csv_path)
         st.sidebar.success(f"📄 使用中: {uploaded_csv.name}")
         return tmp_csv_path
     else:

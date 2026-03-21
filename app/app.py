@@ -1070,7 +1070,7 @@ section[data-testid="stSidebar"] .st-key-exit_app_button {
 
     # サイドバー: Step 1 -> Step 4
     uploaded_file = upload_image_section()
-    csv_path = upload_csv_section()
+    csv_bytes = upload_csv_section()
     params = setup_sidebar()
 
     st.sidebar.header("🚀 Step 5: 処理実行")
@@ -1178,9 +1178,9 @@ section[data-testid="stSidebar"] .st-key-exit_app_button {
 
                     st.session_state.processor = processor
 
-                    # 処理実行（csv_path は bytes）
+                    # 処理実行（csv_bytes は bytes）
                     label_image, mapped_colors = processor.create_label_image(
-                        process_image, csv_path)
+                        process_image, csv_bytes)
 
                     st.session_state.label_image = label_image
                     st.session_state.original_label_image = label_image.copy()

@@ -666,7 +666,7 @@ def render_details_section(src_image:np.ndarray):
     
     # ダウンロード用データ生成
     _, img_bytes = cv2.imencode('.png', st.session_state.result_pixel)
-    img_buffer = io.BytesIO(img_bytes)
+    img_buffer = img_bytes.tobytes()
     processor = st.session_state.get("processor", ImageToPixels())
     base_label_image = st.session_state.get("original_label_image", st.session_state.label_image)
 
@@ -690,7 +690,7 @@ def render_details_section(src_image:np.ndarray):
         )
         _, coded_img_bytes = cv2.imencode('.png', coded_pixel)
         st.session_state.color_code_cache_key = color_code_cache_key
-        st.session_state.cached_color_code_png = io.BytesIO(coded_img_bytes)
+        st.session_state.cached_color_code_png = coded_img_bytes.tobytes()
         st.session_state.cached_color_code_csv = create_color_code_csv(color_code_grid)
 
     coded_img_buffer = st.session_state.cached_color_code_png

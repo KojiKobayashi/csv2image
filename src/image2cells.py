@@ -320,7 +320,8 @@ def _load_color_csv(csv_bytes_io: io.BytesIO) -> list:
     # BytesIO の場合（メモリ上のCSV）
     csv_bytes_io.seek(0)
     csv_text = csv_bytes_io.read().decode('utf-8-sig')
-    reader = csv.reader(csv_text.splitlines())
+    csv_stream = io.StringIO(csv_text)
+    reader = csv.reader(csv_stream)
     rows = list(reader)
     if not rows:
         raise ValueError(error_message)

@@ -338,7 +338,14 @@ def _load_color_csv(csv_bytes_io: io.BytesIO) -> list:
         g = parts[3].strip()
         b = parts[4].strip()
 
-        if not (system and color_number and r and g and b):
+        # r,g,b が整数に変換できない、または0-255の範囲外の場合はスキップ
+        try:
+            r = int(r)
+            g = int(g)
+            b = int(b)
+            if not (0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255):
+                continue
+        except ValueError:
             continue
 
         try:

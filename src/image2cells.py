@@ -283,7 +283,9 @@ class ImageToPixels:
             raise ValueError("Either filename or src must be provided.")
         
         if csv_bytes is None:
-            raise ValueError("CSV bytes must be provided.")
+            # デフォルトのCSV
+            with open("data/default_palette.csv", "rb") as f:
+                csv_bytes = f.read()
 
         label_image, mapped_colors = self.create_label_image(src, csv_bytes)
         created_pixel_image = self.create_pixel_image(label_image, mapped_colors)

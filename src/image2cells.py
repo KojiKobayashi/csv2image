@@ -11,7 +11,7 @@ import settings as cfg
 
 class Color:
     """色を表現するクラス"""
-    def __init__(self, type: str, color_number: str, rgb: list, lab: list, asin: str = ""):
+    def __init__(self, type: str, color_number: str, rgb: tuple[int, int, int], lab: tuple[int, int, int], asin: str = ""):
         self.type = type
         self.color_number = color_number
         self.rgb = rgb
@@ -29,7 +29,7 @@ class Color:
 
 class ColorCount(Color):
     """色とそのピクセル数を表現するクラス"""
-    def __init__(self, type: str, color_number: str, rgb: list, lab: list, count: int, asin: str = ""):
+    def __init__(self, type: str, color_number: str, rgb: tuple[int, int, int], lab: tuple[int, int, int], count: int, asin: str = ""):
         super().__init__(type, color_number, rgb, lab, asin)
         self.count = count
 
@@ -354,7 +354,7 @@ def _load_color_csv(csv_bytes_io: io.BytesIO) -> list:
         except ValueError:
             continue
 
-        rgb = [r, g, b]
+        rgb = (r, g, b)
 
         asin = ""
         if asin_idx >= 0 and asin_idx < len(parts):

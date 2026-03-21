@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from image2cells import ImageToPixels
 from streamlit_image_coordinates import streamlit_image_coordinates
+from image2cells import Color
 
 def resource_path(*parts: str) -> Path:
     base_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
@@ -75,7 +76,7 @@ def get_contrast_text_color(bgr_tuple: tuple[int, int, int]) -> tuple[int, int, 
     return (0, 0, 0) if brightness >= TEXT_BRIGHTNESS_THRESHOLD else (255, 255, 255)
 
 
-def build_color_code_grid(label_image: np.ndarray, mapped_colors: list) -> np.ndarray:
+def build_color_code_grid(label_image: np.ndarray, mapped_colors: list[Color]) -> np.ndarray:
     """セル(y, x)ごとの色コード文字列を格納した (height, width) の配列を返す"""
     # 有効な色インデックスだけ color_number を入れ、それ以外（例: 255）は空文字にする
     codes = np.array([str(c.color_number) for c in mapped_colors], dtype=object)
@@ -98,7 +99,7 @@ def create_color_code_csv(color_code_grid: np.ndarray) -> bytes:
 
 def build_color_code_cache_key(
     label_image: np.ndarray,
-    mapped_colors: list,
+    mapped_colors: list[Color],
     processor: ImageToPixels,
 ) -> str:
     """色コード画像/CSVのキャッシュキーを生成する"""
@@ -124,7 +125,7 @@ def build_color_code_cache_key(
 
 def create_color_code_pixel_image(
     label_image: np.ndarray,
-    mapped_colors: list,
+    mapped_colors: list[Color],
     processor: ImageToPixels,
     color_code_grid: np.ndarray,
     base_pixel: np.ndarray | None = None,
@@ -136,7 +137,13 @@ def create_color_code_pixel_image(
     cell_w = processor.cell_width
     line_thickness = processor.line_thickness
     thick_line_interval = processor.thick_line_interval
-    thick_line_delta = processor.thick_line_thickness - line_thickness
+    
+    # 太い線の太さは通常線以上でなければならないため、必要に応じて調整
+    thick_line_thickness = processor.thick_line_thickness
+    if thick_line_thickness < line_thickness:
+        thick_line_thickness = line_thickness
+
+    thick_line_delta = thick_line_thickness - line_thickness
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     base_font_scale = max(0.25, min(cell_w, cell_h) / 42.0)
@@ -169,7 +176,7 @@ def create_color_code_pixel_image(
             text_size, _ = cv2.getTextSize(color_code, font, font_scale, thickness)
             text_w, text_h = text_size
 
-        cell_bgr = tuple(int(v) for v in reversed(color.rgb))
+        cell_bgr = (color.rgb[2], color.rgb[1], color.rgb[0])  # RGB -> BGR
         render_cache[idx] = {
             "font_scale": font_scale,
             "thickness": thickness,
@@ -672,8 +679,9 @@ def render_details_section(src_image:np.ndarray):
     colors_csv = create_colors_csv(st.session_state.mapped_colors)
     
     # ダウンロード用データ生成
-    _, img_bytes = cv2.imencode('.png', st.session_state.result_pixel)
-    img_buffer = img_bytes.tobytes()
+    ret, img_bytes = cv2.imencode('.png', st.session_state.result_pixel)
+    img_buffer = img_bytes.tobytes() if ret else None
+
     processor = st.session_state.get("processor", ImageToPixels())
     base_label_image = st.session_state.original_label_image
 
@@ -695,9 +703,9 @@ def render_details_section(src_image:np.ndarray):
             color_code_grid,
             base_pixel=st.session_state.result_pixel,
         )
-        _, coded_img_bytes = cv2.imencode('.png', coded_pixel)
+        ret, coded_img_bytes = cv2.imencode('.png', coded_pixel)
         st.session_state.color_code_cache_key = color_code_cache_key
-        st.session_state.cached_color_code_png = coded_img_bytes.tobytes()
+        st.session_state.cached_color_code_png = coded_img_bytes.tobytes() if ret else None
         st.session_state.cached_color_code_csv = create_color_code_csv(color_code_grid)
 
     coded_img_buffer = st.session_state.cached_color_code_png
@@ -710,14 +718,15 @@ def render_details_section(src_image:np.ndarray):
     with col_code_img:
         st.markdown("**色コード付きドット絵**")
         st.caption("各セルに色番号が書かれた図。編み物をしながら参照するのに最適です。")
-        st.download_button(
-            label="🔢 ダウンロード",
-            data=coded_img_buffer,
-            file_name="result_pixelized_with_color_code.png",
-            mime="image/png",
-            use_container_width=True,
-            key="dl_coded_pixel"
-        )
+        if coded_img_buffer:
+            st.download_button(
+                label="🔢 ダウンロード",
+                data=coded_img_buffer,
+                file_name="result_pixelized_with_color_code.png",
+                mime="image/png",
+                use_container_width=True,
+                key="dl_coded_pixel"
+            )
 
     with col_csv:
         st.markdown("**毛糸の色情報**")
@@ -738,14 +747,15 @@ def render_details_section(src_image:np.ndarray):
         with col_img:
             st.markdown("**通常のドット絵（グリッド線のみ）**")
             st.caption("色番号なし。シンプルな図が必要な場合に使用します。")
-            st.download_button(
-                label="🖼️ ダウンロード",
-                data=img_buffer,
-                file_name="result_pixelized.png",
-                mime="image/png",
-                use_container_width=True,
-                key="dl_plain_pixel"
-            )
+            if img_buffer:
+                st.download_button(
+                    label="🖼️ ダウンロード",
+                    data=img_buffer,
+                    file_name="result_pixelized.png",
+                    mime="image/png",
+                    use_container_width=True,
+                    key="dl_plain_pixel"
+                )
         
         with col_code_csv:
             st.markdown("**色コード配列（エクセル用）**")

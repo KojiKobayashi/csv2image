@@ -5,6 +5,7 @@ import numpy as np
 from pathlib import Path
 import sys
 import io
+import hashlib
 import pandas as pd
 
 # srcフォルダをPythonパスに追加
@@ -92,14 +93,39 @@ def create_color_code_csv(color_code_grid: np.ndarray) -> str:
     return df.to_csv(index=False, header=False, encoding='utf-8-sig')
 
 
+def build_color_code_cache_key(
+    label_image: np.ndarray,
+    mapped_colors: list,
+    processor: ImageToPixels,
+) -> str:
+    """色コード画像/CSVのキャッシュキーを生成する"""
+    hasher = hashlib.blake2b(digest_size=16)
+    hasher.update(label_image.tobytes())
+
+    for color in mapped_colors:
+        hasher.update(str(color.color_number).encode("utf-8"))
+        hasher.update(bytes(color.rgb))
+
+    config_tuple = (
+        processor.cell_height,
+        processor.cell_width,
+        processor.line_thickness,
+        processor.thick_line_thickness,
+        processor.thick_line_interval,
+    )
+    hasher.update(str(config_tuple).encode("utf-8"))
+    return hasher.hexdigest()
+
+
 def create_color_code_pixel_image(
     label_image: np.ndarray,
     mapped_colors: list,
     processor: ImageToPixels,
     color_code_grid: np.ndarray,
+    base_pixel: np.ndarray | None = None,
 ) -> np.ndarray:
     """各セル中央に色コードを重ねたドット絵画像を作成する"""
-    coded_pixel = processor.create_pixel_image(label_image, mapped_colors)
+    coded_pixel = base_pixel.copy() if base_pixel is not None else processor.create_pixel_image(label_image, mapped_colors)
     height, width = label_image.shape[:2]
     cell_h = processor.cell_height
     cell_w = processor.cell_width
@@ -633,19 +659,31 @@ def render_details_section(src_image:np.ndarray):
     _, img_bytes = cv2.imencode('.png', st.session_state.result_pixel)
     img_buffer = io.BytesIO(img_bytes)
     processor = st.session_state.get("processor", ImageToPixels())
-    color_code_grid = build_color_code_grid(
-        st.session_state.label_image,
-        st.session_state.mapped_colors,
-    )
-    coded_pixel = create_color_code_pixel_image(
+    color_code_cache_key = build_color_code_cache_key(
         st.session_state.label_image,
         st.session_state.mapped_colors,
         processor,
-        color_code_grid,
     )
-    _, coded_img_bytes = cv2.imencode('.png', coded_pixel)
-    coded_img_buffer = io.BytesIO(coded_img_bytes)
-    color_code_csv = create_color_code_csv(color_code_grid)
+
+    if st.session_state.get("color_code_cache_key") != color_code_cache_key:
+        color_code_grid = build_color_code_grid(
+            st.session_state.label_image,
+            st.session_state.mapped_colors,
+        )
+        coded_pixel = create_color_code_pixel_image(
+            st.session_state.label_image,
+            st.session_state.mapped_colors,
+            processor,
+            color_code_grid,
+            base_pixel=st.session_state.result_pixel,
+        )
+        _, coded_img_bytes = cv2.imencode('.png', coded_pixel)
+        st.session_state.color_code_cache_key = color_code_cache_key
+        st.session_state.cached_color_code_png = io.BytesIO(coded_img_bytes)
+        st.session_state.cached_color_code_csv = create_color_code_csv(color_code_grid)
+
+    coded_img_buffer = st.session_state.cached_color_code_png
+    color_code_csv = st.session_state.cached_color_code_csv
 
     # ダウンロードボタン
     st.markdown("#### 🎯 基本用途（通常はこれだけで十分です）")

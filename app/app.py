@@ -662,19 +662,21 @@ def render_details_section(src_image:np.ndarray):
     _, img_bytes = cv2.imencode('.png', st.session_state.result_pixel)
     img_buffer = io.BytesIO(img_bytes)
     processor = st.session_state.get("processor", ImageToPixels())
+    base_label_image = st.session_state.get("original_label_image", st.session_state.label_image)
+
     color_code_cache_key = build_color_code_cache_key(
-        st.session_state.label_image,
+        base_label_image,
         st.session_state.mapped_colors,
         processor,
     )
 
     if st.session_state.get("color_code_cache_key") != color_code_cache_key:
         color_code_grid = build_color_code_grid(
-            st.session_state.label_image,
+            base_label_image,
             st.session_state.mapped_colors,
         )
         coded_pixel = create_color_code_pixel_image(
-            st.session_state.label_image,
+            base_label_image,
             st.session_state.mapped_colors,
             processor,
             color_code_grid,
@@ -1004,6 +1006,8 @@ def render_edit_section():
                     st.session_state.label_image,
                     st.session_state.mapped_colors
                 )
+                st.session_state.original_label_image = st.session_state.label_image.copy()
+                st.session_state.original_mapped_image = st.session_state.mapped_image.copy()
                 st.session_state.edit_history.clear()
                 st.session_state.redo_history.clear()
 

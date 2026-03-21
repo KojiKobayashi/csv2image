@@ -267,7 +267,7 @@ class ImageToPixels:
 
     def create_color_counts(self, label_image: np.ndarray, mapped_colors: list[Color])-> list[ColorCount]:
         """label_imageのインデックスをmapped_colorsのRGBに変換して、色ごとのピクセル数をカウントする"""
-        color_counts = _count_color_pixels(label_image)
+        color_counts = _count_color_pixels(label_image, mapped_colors)
         color_counts = [ColorCount(color.type, color.color_number, color.rgb, color.lab, count, color.asin)
                         for color, count in zip(mapped_colors, color_counts)]
         color_counts = sorted(color_counts, key=lambda c: c.count, reverse=True)
@@ -404,7 +404,7 @@ def _map_colors_to_palette(centers, palette) -> list[Color]:
     return mapped_colors
 
 
-def _count_color_pixels(grey: np.ndarray) -> list[int]:
+def _count_color_pixels(grey: np.ndarray, mapped_colors: list[Color]) -> list[int]:
     color_counts = {}
     height, width = grey.shape[:2]
     for i in range(height):
@@ -415,7 +415,7 @@ def _count_color_pixels(grey: np.ndarray) -> list[int]:
             else:
                 color_counts[idx] = 1
 
-    ret = [0] * len(color_counts)
+    ret = [0] * len(mapped_colors)
     for idx, count in color_counts.items():
         if idx >= len(ret):
             continue

@@ -6,7 +6,6 @@ from pathlib import Path
 import sys
 import io
 import hashlib
-import uuid
 import pandas as pd
 
 # srcフォルダをPythonパスに追加

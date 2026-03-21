@@ -50,6 +50,7 @@ CIRCLE_RADIUS = 8
 CIRCLE_THICKNESS = -1
 RECTANGLE_THICKNESS = 3
 OVERLAY_ALPHA = 0.15
+TEXT_BRIGHTNESS_THRESHOLD = 150
 
 # ファイル設定
 SUPPORTED_IMAGE_FORMATS = ["jpg", "jpeg", "png", "bmp", "tif", "tiff"]
@@ -69,6 +70,100 @@ def draw_color_sample(rgb_tuple:tuple[int, int, int], width:int=40, height:int=4
     """色見本HTMLを生成"""
     rgb_color = get_rgb_color_html(rgb_tuple)
     return f'<div style="width: {width}px; height: {height}px; background-color: {rgb_color}; border: 1px solid #ccc; border-radius: 4px;"></div>'
+
+
+def get_contrast_text_color(bgr_tuple: tuple[int, int, int]) -> tuple[int, int, int]:
+    """背景色に応じて視認性の高い文字色（黒 or 白）を返す"""
+    b, g, r = bgr_tuple
+    brightness = 0.299 * r + 0.587 * g + 0.114 * b
+    return (0, 0, 0) if brightness >= TEXT_BRIGHTNESS_THRESHOLD else (255, 255, 255)
+
+
+def create_color_code_pixel_image(
+    label_image: np.ndarray,
+    mapped_colors: list,
+    processor: ImageToPixels,
+) -> np.ndarray:
+    """各セル中央に色コードを重ねたドット絵画像を作成する"""
+    coded_pixel = processor.create_pixel_image(label_image, mapped_colors)
+    height, width = label_image.shape[:2]
+    cell_h = processor.cell_height
+    cell_w = processor.cell_width
+    line_thickness = processor.line_thickness
+    thick_line_interval = processor.thick_line_interval
+    thick_line_delta = processor.thick_line_thickness - line_thickness
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    base_font_scale = max(0.25, min(cell_w, cell_h) / 42.0)
+
+    row_starts = [
+        y * (cell_h + line_thickness) + (y // thick_line_interval) * thick_line_delta
+        for y in range(height)
+    ]
+    col_starts = [
+        x * (cell_w + line_thickness) + (x // thick_line_interval) * thick_line_delta
+        for x in range(width)
+    ]
+
+    color_text_cache = {}
+    for idx, color in enumerate(mapped_colors):
+        color_code = str(color.color_number).strip()
+        if not color_code:
+            color_text_cache[idx] = None
+            continue
+
+        font_scale = base_font_scale
+        thickness = max(1, int(round(font_scale)))
+        text_size, baseline = cv2.getTextSize(color_code, font, font_scale, thickness)
+        text_w, text_h = text_size
+
+        while (text_w > cell_w - 2 or text_h > cell_h - 2) and font_scale > 0.2:
+            font_scale *= 0.9
+            thickness = max(1, int(round(font_scale)))
+            text_size, baseline = cv2.getTextSize(color_code, font, font_scale, thickness)
+            text_w, text_h = text_size
+
+        offset_x = max(0, (cell_w - text_w) // 2)
+        offset_y = max(text_h, (cell_h + text_h) // 2)
+        cell_bgr = tuple(int(v) for v in reversed(color.rgb))
+        text_color = get_contrast_text_color(cell_bgr)
+
+        color_text_cache[idx] = {
+            "text": color_code,
+            "font_scale": font_scale,
+            "thickness": thickness,
+            "offset_x": offset_x,
+            "offset_y": offset_y,
+            "text_color": text_color,
+        }
+
+    for y in range(height):
+        start_y = row_starts[y]
+        for x in range(width):
+            color_idx = int(label_image[y, x])
+            if color_idx >= len(mapped_colors):
+                continue
+
+            text_params = color_text_cache.get(color_idx)
+            if not text_params:
+                continue
+
+            start_x = col_starts[x]
+            text_x = start_x + text_params["offset_x"]
+            text_y = start_y + text_params["offset_y"]
+
+            cv2.putText(
+                coded_pixel,
+                text_params["text"],
+                (text_x, text_y),
+                font,
+                text_params["font_scale"],
+                text_params["text_color"],
+                text_params["thickness"],
+                cv2.LINE_AA,
+            )
+
+    return coded_pixel
 
 
 def resize_for_display(image:np.ndarray, max_width:int=MAX_DISPLAY_WIDTH) -> tuple[np.ndarray, float]:
@@ -498,15 +593,32 @@ def render_details_section(src_image:np.ndarray):
     # ダウンロード用画像
     _, img_bytes = cv2.imencode('.png', st.session_state.result_pixel)
     img_buffer = io.BytesIO(img_bytes)
+    processor = st.session_state.get("processor", ImageToPixels())
+    coded_pixel = create_color_code_pixel_image(
+        st.session_state.label_image,
+        st.session_state.mapped_colors,
+        processor,
+    )
+    _, coded_img_bytes = cv2.imencode('.png', coded_pixel)
+    coded_img_buffer = io.BytesIO(coded_img_bytes)
     
     # ダウンロードボタン
-    col_img, col_csv = st.columns(2)
+    col_img, col_code_img, col_csv = st.columns(3)
     
     with col_img:
         st.download_button(
             label="🖼️ ドット絵をダウンロード",
             data=img_buffer,
             file_name="result_pixelized.png",
+            mime="image/png",
+            use_container_width=True
+        )
+
+    with col_code_img:
+        st.download_button(
+            label="🔢 色コード付きドット絵をダウンロード",
+            data=coded_img_buffer,
+            file_name="result_pixelized_with_color_code.png",
             mime="image/png",
             use_container_width=True
         )

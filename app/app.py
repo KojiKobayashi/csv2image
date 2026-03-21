@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 from pathlib import Path
 import sys
-import io
+import hashlib
 import pandas as pd
 
 # srcフォルダをPythonパスに追加
@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from image2cells import ImageToPixels
 from streamlit_image_coordinates import streamlit_image_coordinates
+from image2cells import Color
 
 def resource_path(*parts: str) -> Path:
     base_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
@@ -50,13 +51,10 @@ CIRCLE_RADIUS = 8
 CIRCLE_THICKNESS = -1
 RECTANGLE_THICKNESS = 3
 OVERLAY_ALPHA = 0.15
+TEXT_BRIGHTNESS_THRESHOLD = 150
 
 # ファイル設定
 SUPPORTED_IMAGE_FORMATS = ["jpg", "jpeg", "png", "bmp", "tif", "tiff"]
-
-
-def _ensure_tmp_dir():
-    Path("./tmp").mkdir(parents=True, exist_ok=True)
 
 
 # ==================== ヘルパー関数 ====================
@@ -71,6 +69,152 @@ def draw_color_sample(rgb_tuple:tuple[int, int, int], width:int=40, height:int=4
     return f'<div style="width: {width}px; height: {height}px; background-color: {rgb_color}; border: 1px solid #ccc; border-radius: 4px;"></div>'
 
 
+def get_contrast_text_color(bgr_tuple: tuple[int, int, int]) -> tuple[int, int, int]:
+    """背景色に応じて視認性の高い文字色（黒 or 白）を返す"""
+    b, g, r = bgr_tuple
+    brightness = 0.299 * r + 0.587 * g + 0.114 * b
+    return (0, 0, 0) if brightness >= TEXT_BRIGHTNESS_THRESHOLD else (255, 255, 255)
+
+
+def build_color_code_grid(label_image: np.ndarray, mapped_colors: list[Color]) -> np.ndarray:
+    """セル(y, x)ごとの色コード文字列を格納した (height, width) の配列を返す"""
+    # 有効な色インデックスだけ color_number を入れ、それ以外（例: 255）は空文字にする
+    codes = np.array([str(c.color_number) for c in mapped_colors], dtype=object)
+    # 出力グリッドを空文字で初期化
+    result = np.full(label_image.shape, "", dtype=object)
+    # 0 <= label < len(mapped_colors) のセルのみ有効
+    labels_int = label_image.astype(np.int32)
+    valid_mask = (labels_int >= 0) & (labels_int < len(mapped_colors))
+    result[valid_mask] = codes[labels_int[valid_mask]]
+    return result
+
+
+def create_color_code_csv(color_code_grid: np.ndarray) -> bytes:
+    """color_code_gridからCSVを生成する（UTF-8・BOMなしのバイト列を返す）"""
+    # 画像と同じ配置（行=y、列=x）のままCSV化
+    df = pd.DataFrame(color_code_grid)
+    csv_str = df.to_csv(index=False, header=False)
+    return csv_str.encode("utf-8")
+
+
+def build_color_code_cache_key(
+    label_image: np.ndarray,
+    mapped_colors: list[Color],
+    processor: ImageToPixels,
+) -> str:
+    """色コード画像/CSVのキャッシュキーを生成する"""
+    hasher = hashlib.blake2b(digest_size=16)
+    # label_image のバイト列だけでなく shape / dtype もキーに含めて衝突を防ぐ
+    hasher.update(str((label_image.shape, str(label_image.dtype))).encode("utf-8"))
+    hasher.update(label_image.tobytes())
+
+    for color in mapped_colors:
+        hasher.update(str(color.color_number).encode("utf-8"))
+        hasher.update(bytes(color.rgb))
+
+    config_tuple = (
+        processor.cell_height,
+        processor.cell_width,
+        processor.line_thickness,
+        processor.thick_line_thickness,
+        processor.thick_line_interval,
+    )
+    hasher.update(str(config_tuple).encode("utf-8"))
+    return hasher.hexdigest()
+
+
+def create_color_code_pixel_image(
+    label_image: np.ndarray,
+    mapped_colors: list[Color],
+    processor: ImageToPixels,
+    color_code_grid: np.ndarray,
+    base_pixel: np.ndarray | None = None,
+) -> np.ndarray:
+    """各セル中央に色コードを重ねたドット絵画像を作成する"""
+    coded_pixel = base_pixel.copy() if base_pixel is not None else processor.create_pixel_image(label_image, mapped_colors)
+    height, width = label_image.shape[:2]
+    cell_h = processor.cell_height
+    cell_w = processor.cell_width
+    line_thickness = processor.line_thickness
+    thick_line_interval = processor.thick_line_interval
+    
+    # 太い線の太さは通常線以上でなければならないため、必要に応じて調整
+    thick_line_thickness = processor.thick_line_thickness
+    if thick_line_thickness < line_thickness:
+        thick_line_thickness = line_thickness
+
+    thick_line_delta = thick_line_thickness - line_thickness
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    base_font_scale = max(0.25, min(cell_w, cell_h) / 42.0)
+
+    row_starts = [
+        y * (cell_h + line_thickness) + (y // thick_line_interval) * thick_line_delta
+        for y in range(height)
+    ]
+    col_starts = [
+        x * (cell_w + line_thickness) + (x // thick_line_interval) * thick_line_delta
+        for x in range(width)
+    ]
+
+    # 描画パラメータのみをキャッシュ（テキスト文字列は color_code_grid から取得）
+    render_cache = {}
+    for idx, color in enumerate(mapped_colors):
+        color_code = str(color.color_number).strip()
+        if not color_code:
+            render_cache[idx] = None
+            continue
+
+        font_scale = base_font_scale
+        thickness = max(1, int(round(font_scale)))
+        text_size, _ = cv2.getTextSize(color_code, font, font_scale, thickness)
+        text_w, text_h = text_size
+
+        while (text_w > cell_w - 2 or text_h > cell_h - 2) and font_scale > 0.2:
+            font_scale *= 0.9
+            thickness = max(1, int(round(font_scale)))
+            text_size, _ = cv2.getTextSize(color_code, font, font_scale, thickness)
+            text_w, text_h = text_size
+
+        cell_bgr = (color.rgb[2], color.rgb[1], color.rgb[0])  # RGB -> BGR
+        render_cache[idx] = {
+            "font_scale": font_scale,
+            "thickness": thickness,
+            "offset_x": max(0, (cell_w - text_w) // 2),
+            "offset_y": max(text_h, (cell_h + text_h) // 2),
+            "text_color": get_contrast_text_color(cell_bgr),
+        }
+
+    for y in range(height):
+        start_y = row_starts[y]
+        for x in range(width):
+            color_idx = int(label_image[y, x])
+            if color_idx >= len(mapped_colors):
+                continue
+
+            params = render_cache.get(color_idx)
+            if params is None:
+                continue
+
+            text = color_code_grid[y, x]
+            if not text:
+                continue
+
+            start_x = col_starts[x]
+            cv2.putText(
+                coded_pixel,
+                text,
+                (start_x + params["offset_x"], start_y + params["offset_y"]),
+                font,
+                params["font_scale"],
+                params["text_color"],
+                params["thickness"],
+                cv2.LINE_AA,
+            )
+
+    return coded_pixel
+
+
 def resize_for_display(image:np.ndarray, max_width:int=MAX_DISPLAY_WIDTH) -> tuple[np.ndarray, float]:
     """画像を表示用にリサイズし、表示画像と縮小率を返す"""
     orig_height, orig_width = image.shape[:2]
@@ -83,8 +227,8 @@ def resize_for_display(image:np.ndarray, max_width:int=MAX_DISPLAY_WIDTH) -> tup
     return image, 1.0
 
 
-def create_colors_csv(mapped_colors:list) -> str:
-    """色情報をCSV形式で生成"""
+def create_colors_csv(mapped_colors: list) -> bytes:
+    """色情報をCSV形式で生成（UTF-8・BOMなしのバイト列を返す）"""
     colors_data = []
     for idx, color in enumerate(mapped_colors):
         colors_data.append({
@@ -97,7 +241,7 @@ def create_colors_csv(mapped_colors:list) -> str:
             "B": color.rgb[2]
         })
     colors_df = pd.DataFrame(colors_data)
-    return colors_df.to_csv(index=False, encoding='utf-8-sig')
+    return colors_df.to_csv(index=False).encode("utf-8")
 
 
 def get_rect_dimensions(rect:tuple[int, int, int, int]) -> tuple[int, int]:
@@ -213,7 +357,7 @@ def init_session_state(src_image:np.ndarray):
 
 def setup_sidebar():
     """サイドバーの設定を行い、パラメータを返す"""
-    st.sidebar.header("⚙️ Step 3: 変換設定")
+    st.sidebar.header("⚙️ Step 4: 変換設定")
     st.sidebar.caption("まずは基本設定で処理し、必要なら詳細設定を調整してください。")
     
     colors_number = st.sidebar.slider(
@@ -254,11 +398,13 @@ def setup_sidebar():
             value=DEFAULT_LINE_THICKNESS,
             step=1
         )
+        thick_line_min = max(THICK_LINE_THICKNESS_RANGE[0], line_thickness)
+        thick_line_default = max(DEFAULT_THICK_LINE_THICKNESS, thick_line_min)
         thick_line_thickness = st.slider(
             "太いグリッド線の太さ",
-            min_value=THICK_LINE_THICKNESS_RANGE[0],
+            min_value=thick_line_min,
             max_value=THICK_LINE_THICKNESS_RANGE[1],
-            value=DEFAULT_THICK_LINE_THICKNESS,
+            value=thick_line_default,
             step=1
         )
         thick_line_interval = st.slider(
@@ -296,6 +442,45 @@ def upload_image_section():
         type=SUPPORTED_IMAGE_FORMATS
     )
     return uploaded_file
+
+
+def upload_csv_section() -> bytes:
+    """毛糸CSVアップロードUI。使用するCSVのバイト列を返す"""
+    st.sidebar.header("🧶 Step 2: 毛糸CSVを選択（任意）")
+    st.sidebar.caption(
+        "デフォルトはメリノレインボーCSVを使用します。"
+        "別の毛糸を使う場合はCSVをアップロードしてください。"
+    )
+    uploaded_csv = st.sidebar.file_uploader(
+        "毛糸CSVファイル（任意）",
+        type=["csv"],
+        key="csv_uploader"
+    )
+
+    # 新しくCSVがアップロードされた場合は、その内容を読み込んでセッションに保存
+    if uploaded_csv is not None:
+        # UploadedFile は再実行時にファイルポインタが末尾になっている可能性があるため
+        # getvalue() を優先的に使用する
+        if hasattr(uploaded_csv, "getvalue"):
+            csv_bytes = uploaded_csv.getvalue()
+        else:
+            uploaded_csv.seek(0)
+            csv_bytes = uploaded_csv.read()
+        st.session_state.uploaded_csv_bytes = csv_bytes
+        st.session_state.uploaded_csv_name = uploaded_csv.name
+        st.sidebar.success(f"📄 使用中: {uploaded_csv.name}")
+        return csv_bytes
+
+    # 本実行で新規アップロードがない場合は、セッションに保存されているCSVを優先
+    if "uploaded_csv_bytes" in st.session_state:
+        csv_name = st.session_state.get("uploaded_csv_name", "アップロード済みCSV")
+        st.sidebar.success(f"📄 使用中: {csv_name}")
+        return st.session_state.uploaded_csv_bytes
+
+    # それ以外の場合はデフォルトCSVを使用
+    csv_bytes = Path(MERINO_RAINBOW_CSV).read_bytes()
+    st.sidebar.caption("📄 使用中: merinorainbow.csv（デフォルト）")
+    return csv_bytes
 
 
 def render_roi_selection_ui(src_shape: tuple[int, int, int], display_image:np.ndarray, display_scale:float):
@@ -495,30 +680,96 @@ def render_details_section(src_image:np.ndarray):
     
     colors_csv = create_colors_csv(st.session_state.mapped_colors)
     
-    # ダウンロード用画像
-    _, img_bytes = cv2.imencode('.png', st.session_state.result_pixel)
-    img_buffer = io.BytesIO(img_bytes)
-    
-    # ダウンロードボタン
-    col_img, col_csv = st.columns(2)
-    
-    with col_img:
-        st.download_button(
-            label="🖼️ ドット絵をダウンロード",
-            data=img_buffer,
-            file_name="result_pixelized.png",
-            mime="image/png",
-            use_container_width=True
+    # ダウンロード用データ生成
+    ret, img_bytes = cv2.imencode('.png', st.session_state.result_pixel)
+    img_buffer = img_bytes.tobytes() if ret else None
+
+    processor = st.session_state.get("processor") or ImageToPixels()
+    base_label_image = st.session_state.original_label_image
+
+    color_code_cache_key = build_color_code_cache_key(
+        base_label_image,
+        st.session_state.mapped_colors,
+        processor,
+    )
+
+    if st.session_state.get("color_code_cache_key") != color_code_cache_key:
+        color_code_grid = build_color_code_grid(
+            base_label_image,
+            st.session_state.mapped_colors,
         )
+        coded_pixel = create_color_code_pixel_image(
+            base_label_image,
+            st.session_state.mapped_colors,
+            processor,
+            color_code_grid,
+            base_pixel=st.session_state.result_pixel,
+        )
+        ret, coded_img_bytes = cv2.imencode('.png', coded_pixel)
+        st.session_state.color_code_cache_key = color_code_cache_key
+        st.session_state.cached_color_code_png = coded_img_bytes.tobytes() if ret else None
+        st.session_state.cached_color_code_csv = create_color_code_csv(color_code_grid)
+
+    coded_img_buffer = st.session_state.cached_color_code_png
+    color_code_csv = st.session_state.cached_color_code_csv
+
+    # ダウンロードボタン
+    st.markdown("#### 🎯 基本用途（通常はこれだけで十分です）")
+    col_code_img, col_csv = st.columns(2)
     
+    with col_code_img:
+        st.markdown("**色コード付きドット絵**")
+        st.caption("各セルに色番号が書かれた図。編み物をしながら参照するのに最適です。")
+        if coded_img_buffer:
+            st.download_button(
+                label="🔢 ダウンロード",
+                data=coded_img_buffer,
+                file_name="result_pixelized_with_color_code.png",
+                mime="image/png",
+                use_container_width=True,
+                key="dl_coded_pixel"
+            )
+
     with col_csv:
+        st.markdown("**毛糸の色情報**")
+        st.caption("使用する毛糸の色名と商品リンク。毛糸購入時に使います。")
         st.download_button(
-            label="📊 色情報をダウンロード",
+            label="🛒 ダウンロード",
             data=colors_csv,
             file_name="color_palette.csv",
             mime="text/csv",
-            use_container_width=True
+            use_container_width=True,
+            key="dl_colors_csv"
         )
+
+    with st.expander("📦 詳細用途（必要に応じて）", expanded=False):
+        st.caption("下記は特定の用途に使用します。通常は不要です。")
+        col_img, col_code_csv = st.columns(2)
+        
+        with col_img:
+            st.markdown("**通常のドット絵（グリッド線のみ）**")
+            st.caption("色番号なし。シンプルな図が必要な場合に使用します。")
+            if img_buffer:
+                st.download_button(
+                    label="🖼️ ダウンロード",
+                    data=img_buffer,
+                    file_name="result_pixelized.png",
+                    mime="image/png",
+                    use_container_width=True,
+                    key="dl_plain_pixel"
+                )
+        
+        with col_code_csv:
+            st.markdown("**色コード配列（エクセル用）**")
+            st.caption("各セルの色番号をCSV形式で。スプレッドシートで分析・加工する場合に使用します。")
+            st.download_button(
+                label="📋 ダウンロード",
+                data=color_code_csv,
+                file_name="color_code_map.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key="dl_code_csv"
+            )
 
 
 def render_edit_section():
@@ -780,8 +1031,11 @@ def render_edit_section():
                     st.session_state.label_image,
                     st.session_state.mapped_colors
                 )
+                st.session_state.original_label_image = st.session_state.label_image.copy()
+                st.session_state.original_mapped_image = st.session_state.mapped_image.copy()
                 st.session_state.edit_history.clear()
                 st.session_state.redo_history.clear()
+                st.rerun()
 
     reset_col1, reset_col2 = st.columns([0.2, 0.8])
     with reset_col1:
@@ -841,13 +1095,14 @@ section[data-testid="stSidebar"] .st-key-exit_app_button {
     st.markdown("ユザワヤ(Yuzawaya) 毛糸 mansell をベースにした色変換を行います")
 
     st.sidebar.markdown("### 使い方")
-    st.sidebar.caption("1) 画像を選択 -> 2) 範囲を選択(任意) -> 3) 設定調整 -> 4) 処理実行")
+    st.sidebar.caption("1) 画像を選択 -> 2) CSVを選択(任意) -> 3) 範囲を選択(任意) -> 4) 設定調整 -> 5) 処理実行")
 
-    # サイドバー: Step 1 -> Step 3
+    # サイドバー: Step 1 -> Step 4
     uploaded_file = upload_image_section()
+    csv_bytes = upload_csv_section()
     params = setup_sidebar()
 
-    st.sidebar.header("🚀 Step 4: 処理実行")
+    st.sidebar.header("🚀 Step 5: 処理実行")
     run_clicked = st.sidebar.button(
         "処理を開始",
         use_container_width=True,
@@ -915,7 +1170,7 @@ section[data-testid="stSidebar"] .st-key-exit_app_button {
                 cell_height=params["cell_height"],
             )
 
-            st.info("Step 2: 必要なら左画像で範囲を選択し、サイドバーの『処理を開始』を押してください。")
+            st.info("Step 3: 必要なら左画像で範囲を選択し、サイドバーの『処理を開始』を押してください。")
             st.markdown(
                 f"""
 **現在の設定**
@@ -952,8 +1207,9 @@ section[data-testid="stSidebar"] .st-key-exit_app_button {
 
                     st.session_state.processor = processor
 
-                    # 処理実行
-                    label_image, mapped_colors = processor.create_label_image(process_image, MERINO_RAINBOW_CSV)
+                    # 処理実行（csv_bytes は bytes）
+                    label_image, mapped_colors = processor.create_label_image(
+                        process_image, csv_bytes)
 
                     st.session_state.label_image = label_image
                     st.session_state.original_label_image = label_image.copy()

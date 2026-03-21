@@ -1,9 +1,9 @@
 import cv2
+import io
 import numpy as np
 import sys
 import csv
 import re
-from typing import List
 from pathlib import Path
 
 import settings as cfg
@@ -11,7 +11,7 @@ import settings as cfg
 
 class Color:
     """色を表現するクラス"""
-    def __init__(self, type: str, color_number: str, rgb: list, lab: list, asin: str = ""):
+    def __init__(self, type: str, color_number: str, rgb: tuple[int, int, int], lab: tuple[int, int, int], asin: str = ""):
         self.type = type
         self.color_number = color_number
         self.rgb = rgb
@@ -29,7 +29,7 @@ class Color:
 
 class ColorCount(Color):
     """色とそのピクセル数を表現するクラス"""
-    def __init__(self, type: str, color_number: str, rgb: list, lab: list, count: int, asin: str = ""):
+    def __init__(self, type: str, color_number: str, rgb: tuple[int, int, int], lab: tuple[int, int, int], count: int, asin: str = ""):
         super().__init__(type, color_number, rgb, lab, asin)
         self.count = count
 
@@ -172,7 +172,7 @@ class ImageToPixels:
         centers = np.uint8(centers)
         centers = cv2.cvtColor(centers.reshape(1, -1, 3), cv2.COLOR_LAB2BGR).reshape(-1, 3)
         
-        quantized_image = centers[labels.flatten()]
+        quantized_image = centers[labels.flatten().astype(np.intp)]
         quantized_image = quantized_image.reshape((image.shape))
         return quantized_image, labels.reshape((image.shape[0], image.shape[1])), centers
 
@@ -222,8 +222,13 @@ class ImageToPixels:
 
     
     # ==================== Public Methods ====================
-    def create_label_image(self, src: np.ndarray, csv_path: Path)-> tuple[np.ndarray, list[Color]]:
-        """画像からcentersのインデックスの1channel画像を作成"""
+    def create_label_image(self, src: np.ndarray, csv_bytes: bytes) -> tuple[np.ndarray, list[Color]]:
+        """画像からcentersのインデックスの1channel画像を作成
+        
+        Args:
+            src: 入力画像（numpy配列）
+            csv_bytes: 毛糸カラーパレット CSV のバイト列
+        """
 
         if max(src.shape) > 2048:
             scale = 2048 / max(src.shape)
@@ -242,7 +247,7 @@ class ImageToPixels:
         if self._denoise:
             label_image = self._remove_noise(label_image)
 
-        palette = _load_color_csv(csv_path)
+        palette = _load_color_csv(io.BytesIO(csv_bytes))
         mapped_colors = _map_colors_to_palette(centers, palette)
 
         return label_image, mapped_colors
@@ -262,14 +267,14 @@ class ImageToPixels:
 
     def create_color_counts(self, label_image: np.ndarray, mapped_colors: list[Color])-> list[ColorCount]:
         """label_imageのインデックスをmapped_colorsのRGBに変換して、色ごとのピクセル数をカウントする"""
-        color_counts = _count_color_pixels(label_image)
+        color_counts = _count_color_pixels(label_image, mapped_colors)
         color_counts = [ColorCount(color.type, color.color_number, color.rgb, color.lab, count, color.asin)
                         for color, count in zip(mapped_colors, color_counts)]
         color_counts = sorted(color_counts, key=lambda c: c.count, reverse=True)
         return color_counts
 
 
-    def run(self, filename: str|None = None, src: np.ndarray|None = None, csv_path: Path|None = None)-> tuple[np.ndarray, list[ColorCount]]:
+    def run(self, filename: str|None = None, src: np.ndarray|None = None, csv_bytes: bytes|None = None)-> tuple[np.ndarray, list[ColorCount]]:
         if filename is not None:
             src = cv2.imread(filename)
             if src is None:
@@ -277,10 +282,12 @@ class ImageToPixels:
         elif src is None:
             raise ValueError("Either filename or src must be provided.")
         
-        if csv_path is None:
-            raise ValueError("CSV path must be provided.")
+        if csv_bytes is None:
+            # デフォルトのCSV（__file__ 基準でパスを解決）
+            default_csv = Path(__file__).resolve().parent.parent / "data" / "merinorainbow.csv"
+            csv_bytes = default_csv.read_bytes()
 
-        label_image, mapped_colors = self.create_label_image(src, csv_path)
+        label_image, mapped_colors = self.create_label_image(src, csv_bytes)
         created_pixel_image = self.create_pixel_image(label_image, mapped_colors)
         color_counts = self.create_color_counts(label_image, mapped_colors)
         return created_pixel_image, color_counts
@@ -296,8 +303,8 @@ def display_image(image):
 
 # csv読み込み
 # 系統,色番,R,G,B,コメント
-# 一行目はヘッダー
-def _load_color_csv(file_path: Path) -> list:
+def _load_color_csv(csv_bytes_io: io.BytesIO) -> list:
+    """CSV を読み込む（BytesIO のみに対応）"""
     asin_pattern = re.compile(r"\b(B0[A-Z0-9]{8})\b", re.IGNORECASE)
 
     def normalize_asin(raw: str) -> str:
@@ -307,67 +314,78 @@ def _load_color_csv(file_path: Path) -> list:
         match = asin_pattern.search(text)
         return match.group(1).upper() if match else ""
 
+    error_message = "CSVに有効な色データが見つかりませんでした。ヘッダー行と、系統・色番・R・G・B の5列以上が必要です。"
     colors = []
-    with open(file_path, 'r', encoding='utf-8') as f:
-        reader = csv.reader(f)
-        rows = list(reader)
-        if not rows:
-            return colors
+    
+    # BytesIO の場合（メモリ上のCSV）
+    csv_bytes_io.seek(0)
+    csv_text = csv_bytes_io.read().decode('utf-8-sig')
+    csv_stream = io.StringIO(csv_text)
+    reader = csv.reader(csv_stream)
+    rows = list(reader)
+    if not rows:
+        raise ValueError(error_message)
 
-        header = [h.strip() for h in rows[0]]
-        asin_idx = header.index("ASIN") if "ASIN" in header else -1
+    header = [h.strip() for h in rows[0]]
+    asin_idx = header.index("ASIN") if "ASIN" in header else -1
 
-        for parts in rows[1:]:
-            if len(parts) < 5:
+    for parts in rows[1:]:
+        if len(parts) < 5:
+            continue
+
+        system = parts[0].strip()
+        color_number = parts[1].strip()
+
+        # 系統または色番が空の場合は不完全な行としてスキップ
+        if not system or not color_number:
+            continue
+
+        r = parts[2].strip()
+        g = parts[3].strip()
+        b = parts[4].strip()
+
+        # r,g,b が整数に変換できない、または0-255の範囲外の場合はスキップ
+        try:
+            r = int(r)
+            g = int(g)
+            b = int(b)
+            if not (0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255):
                 continue
+        except ValueError:
+            continue
 
-            system = parts[0].strip()
-            color_number = parts[1].strip()
-            r = parts[2].strip()
-            g = parts[3].strip()
-            b = parts[4].strip()
+        rgb = (r, g, b)
 
-            if not (system and color_number and r and g and b):
-                continue
+        asin = ""
+        if asin_idx >= 0 and asin_idx < len(parts):
+            asin = normalize_asin(parts[asin_idx])
+        if not asin:
+            for part in parts[5:]:
+                asin = normalize_asin(part)
+                if asin:
+                    break
 
-            try:
-                rgb = [int(r), int(g), int(b)]
-            except ValueError:
-                continue
+        # L*a*b*に変換
+        rgb_mat = np.array([[rgb]], dtype=np.uint8)
+        lab = tuple(cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist())
 
-            asin = ""
-            if asin_idx >= 0 and asin_idx < len(parts):
-                asin = normalize_asin(parts[asin_idx])
-            if not asin:
-                for part in parts[5:]:
-                    asin = normalize_asin(part)
-                    if asin:
-                        break
-
-            # L*a*b*に変換
-            rgb_mat = np.array([[rgb]], dtype=np.uint8)
-            lab = cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist()
-
-            if not asin:
-                continue
-
-            color = Color(system, color_number, rgb, lab, asin)
-            colors.append(color)
+        color = Color(system, color_number, rgb, lab, asin)
+        colors.append(color)
 
     if not colors:
-        raise ValueError("No colors with ASIN found in CSV.")
+        raise ValueError(error_message)
     return colors
 
 
-def _nearest_color(target_rgb, color_list:List[Color]) -> Color:
+def _nearest_color(target_rgb, color_list: list[Color]) -> Color:
     rgb_mat = np.array([[target_rgb]], dtype=np.uint8)
     target_lab = cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist()
     
     min_distance = float('inf')
     nearest = None
     for color in color_list:
-        l, a, b = color.lab  # L*a*b*で距離を測る
-        distance = ((float(target_lab[0]) - float(l)) * 100 / 255) ** 2
+        lab_l, a, b = color.lab  # L*a*b*で距離を測る
+        distance = ((float(target_lab[0]) - float(lab_l)) * 100 / 255) ** 2
         distance += (float(target_lab[1]) - float(a)) ** 2
         distance += (float(target_lab[2]) - float(b)) ** 2
         if distance < min_distance:
@@ -378,7 +396,7 @@ def _nearest_color(target_rgb, color_list:List[Color]) -> Color:
     return nearest
 
 
-def _map_colors_to_palette(centers, palette)->List[Color]:
+def _map_colors_to_palette(centers, palette) -> list[Color]:
     mapped_colors = []
     for center in centers:
         nearest = _nearest_color(list(reversed(center)), palette)
@@ -386,7 +404,7 @@ def _map_colors_to_palette(centers, palette)->List[Color]:
     return mapped_colors
 
 
-def _count_color_pixels(grey)->List[int]:
+def _count_color_pixels(grey: np.ndarray, mapped_colors: list[Color]) -> list[int]:
     color_counts = {}
     height, width = grey.shape[:2]
     for i in range(height):
@@ -397,7 +415,7 @@ def _count_color_pixels(grey)->List[int]:
             else:
                 color_counts[idx] = 1
 
-    ret = [0] * len(color_counts)
+    ret = [0] * len(mapped_colors)
     for idx, count in color_counts.items():
         if idx >= len(ret):
             continue

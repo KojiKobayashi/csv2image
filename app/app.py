@@ -620,43 +620,60 @@ def render_details_section(src_image:np.ndarray):
     color_code_csv = create_color_code_csv(color_code_grid)
 
     # ダウンロードボタン
-    col_img, col_code_img, col_csv, col_code_csv = st.columns(4)
+    st.markdown("#### 🎯 基本用途（通常はこれだけで十分です）")
+    col_code_img, col_csv = st.columns(2)
     
-    with col_img:
-        st.download_button(
-            label="🖼️ ドット絵をダウンロード",
-            data=img_buffer,
-            file_name="result_pixelized.png",
-            mime="image/png",
-            use_container_width=True
-        )
-
     with col_code_img:
+        st.markdown("**色コード付きドット絵**")
+        st.caption("各セルに色番号が書かれた図。編み物をしながら参照するのに最適です。")
         st.download_button(
-            label="🔢 色コード付きドット絵をダウンロード",
+            label="🔢 ダウンロード",
             data=coded_img_buffer,
             file_name="result_pixelized_with_color_code.png",
             mime="image/png",
-            use_container_width=True
+            use_container_width=True,
+            key="dl_coded_pixel"
         )
-    
+
     with col_csv:
+        st.markdown("**毛糸の色情報**")
+        st.caption("使用する毛糸の色名と商品リンク。毛糸購入時に使います。")
         st.download_button(
-            label="📊 色情報をダウンロード",
+            label="🛒 ダウンロード",
             data=colors_csv,
             file_name="color_palette.csv",
             mime="text/csv",
-            use_container_width=True
+            use_container_width=True,
+            key="dl_colors_csv"
         )
 
-    with col_code_csv:
-        st.download_button(
-            label="📋 色コードCSVをダウンロード",
-            data=color_code_csv,
-            file_name="color_code_map.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
+    with st.expander("📦 詳細用途（必要に応じて）", expanded=False):
+        st.caption("下記は特定の用途に使用します。通常は不要です。")
+        col_img, col_code_csv = st.columns(2)
+        
+        with col_img:
+            st.markdown("**通常のドット絵（グリッド線のみ）**")
+            st.caption("色番号なし。シンプルな図が必要な場合に使用します。")
+            st.download_button(
+                label="🖼️ ダウンロード",
+                data=img_buffer,
+                file_name="result_pixelized.png",
+                mime="image/png",
+                use_container_width=True,
+                key="dl_plain_pixel"
+            )
+        
+        with col_code_csv:
+            st.markdown("**色コード配列（エクセル用）**")
+            st.caption("各セルの色番号をCSV形式で。スプレッドシートで分析・加工する場合に使用します。")
+            st.download_button(
+                label="📋 ダウンロード",
+                data=color_code_csv,
+                file_name="color_code_map.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key="dl_code_csv"
+            )
 
 
 def render_edit_section():

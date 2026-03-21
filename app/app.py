@@ -4,7 +4,6 @@ import cv2
 import numpy as np
 from pathlib import Path
 import sys
-import io
 import hashlib
 import pandas as pd
 
@@ -55,10 +54,6 @@ TEXT_BRIGHTNESS_THRESHOLD = 150
 
 # ファイル設定
 SUPPORTED_IMAGE_FORMATS = ["jpg", "jpeg", "png", "bmp", "tif", "tiff"]
-
-
-def _ensure_tmp_dir():
-    Path("./tmp").mkdir(parents=True, exist_ok=True)
 
 
 # ==================== ヘルパー関数 ====================
@@ -225,8 +220,8 @@ def resize_for_display(image:np.ndarray, max_width:int=MAX_DISPLAY_WIDTH) -> tup
     return image, 1.0
 
 
-def create_colors_csv(mapped_colors:list) -> str:
-    """色情報をCSV形式で生成"""
+def create_colors_csv(mapped_colors: list) -> bytes:
+    """色情報をCSV形式で生成（UTF-8・BOMなしのバイト列を返す）"""
     colors_data = []
     for idx, color in enumerate(mapped_colors):
         colors_data.append({
@@ -239,7 +234,7 @@ def create_colors_csv(mapped_colors:list) -> str:
             "B": color.rgb[2]
         })
     colors_df = pd.DataFrame(colors_data)
-    return colors_df.to_csv(index=False)
+    return colors_df.to_csv(index=False).encode("utf-8")
 
 
 def get_rect_dimensions(rect:tuple[int, int, int, int]) -> tuple[int, int]:
@@ -453,18 +448,30 @@ def upload_csv_section() -> bytes:
         key="csv_uploader"
     )
 
+    # 新しくCSVがアップロードされた場合は、その内容を読み込んでセッションに保存
     if uploaded_csv is not None:
-        # アップロードされたファイルをバイト列で返す
-        csv_bytes = uploaded_csv.read()
+        # UploadedFile は再実行時にファイルポインタが末尾になっている可能性があるため
+        # getvalue() を優先的に使用する
+        if hasattr(uploaded_csv, "getvalue"):
+            csv_bytes = uploaded_csv.getvalue()
+        else:
+            uploaded_csv.seek(0)
+            csv_bytes = uploaded_csv.read()
         st.session_state.uploaded_csv_bytes = csv_bytes
         st.session_state.uploaded_csv_name = uploaded_csv.name
         st.sidebar.success(f"📄 使用中: {uploaded_csv.name}")
         return csv_bytes
-    else:
-        # デフォルトCSVをファイルから読み込んでバイト列で返す
-        csv_bytes = Path(MERINO_RAINBOW_CSV).read_bytes()
-        st.sidebar.caption("📄 使用中: merinorainbow.csv（デフォルト）")
-        return csv_bytes
+
+    # 本実行で新規アップロードがない場合は、セッションに保存されているCSVを優先
+    if "uploaded_csv_bytes" in st.session_state:
+        csv_name = st.session_state.get("uploaded_csv_name", "アップロード済みCSV")
+        st.sidebar.success(f"📄 使用中: {csv_name}")
+        return st.session_state.uploaded_csv_bytes
+
+    # それ以外の場合はデフォルトCSVを使用
+    csv_bytes = Path(MERINO_RAINBOW_CSV).read_bytes()
+    st.sidebar.caption("📄 使用中: merinorainbow.csv（デフォルト）")
+    return csv_bytes
 
 
 def render_roi_selection_ui(src_shape: tuple[int, int, int], display_image:np.ndarray, display_scale:float):
@@ -668,7 +675,7 @@ def render_details_section(src_image:np.ndarray):
     _, img_bytes = cv2.imencode('.png', st.session_state.result_pixel)
     img_buffer = img_bytes.tobytes()
     processor = st.session_state.get("processor", ImageToPixels())
-    base_label_image = st.session_state.get("original_label_image", st.session_state.label_image)
+    base_label_image = st.session_state.original_label_image
 
     color_code_cache_key = build_color_code_cache_key(
         base_label_image,
@@ -1016,6 +1023,7 @@ def render_edit_section():
                 st.session_state.original_mapped_image = st.session_state.mapped_image.copy()
                 st.session_state.edit_history.clear()
                 st.session_state.redo_history.clear()
+                st.rerun()
 
     reset_col1, reset_col2 = st.columns([0.2, 0.8])
     with reset_col1:

@@ -4,7 +4,7 @@ import numpy as np
 import sys
 import csv
 import re
-from typing import List
+from pathlib import Path
 
 import settings as cfg
 
@@ -172,7 +172,7 @@ class ImageToPixels:
         centers = np.uint8(centers)
         centers = cv2.cvtColor(centers.reshape(1, -1, 3), cv2.COLOR_LAB2BGR).reshape(-1, 3)
         
-        quantized_image = centers[labels.flatten()]
+        quantized_image = centers[labels.flatten().astype(np.intp)]
         quantized_image = quantized_image.reshape((image.shape))
         return quantized_image, labels.reshape((image.shape[0], image.shape[1])), centers
 
@@ -283,9 +283,9 @@ class ImageToPixels:
             raise ValueError("Either filename or src must be provided.")
         
         if csv_bytes is None:
-            # デフォルトのCSV
-            with open("data/merinorainbow.csv", "rb") as f:
-                csv_bytes = f.read()
+            # デフォルトのCSV（__file__ 基準でパスを解決）
+            default_csv = Path(__file__).resolve().parent.parent / "data" / "merinorainbow.csv"
+            csv_bytes = default_csv.read_bytes()
 
         label_image, mapped_colors = self.create_label_image(src, csv_bytes)
         created_pixel_image = self.create_pixel_image(label_image, mapped_colors)
@@ -334,6 +334,11 @@ def _load_color_csv(csv_bytes_io: io.BytesIO) -> list:
 
         system = parts[0].strip()
         color_number = parts[1].strip()
+
+        # 系統または色番が空の場合は不完全な行としてスキップ
+        if not system or not color_number:
+            continue
+
         r = parts[2].strip()
         g = parts[3].strip()
         b = parts[4].strip()
@@ -348,10 +353,7 @@ def _load_color_csv(csv_bytes_io: io.BytesIO) -> list:
         except ValueError:
             continue
 
-        try:
-            rgb = [int(r), int(g), int(b)]
-        except ValueError:
-            continue
+        rgb = [r, g, b]
 
         asin = ""
         if asin_idx >= 0 and asin_idx < len(parts):
@@ -374,15 +376,15 @@ def _load_color_csv(csv_bytes_io: io.BytesIO) -> list:
     return colors
 
 
-def _nearest_color(target_rgb, color_list:List[Color]) -> Color:
+def _nearest_color(target_rgb, color_list: list[Color]) -> Color:
     rgb_mat = np.array([[target_rgb]], dtype=np.uint8)
     target_lab = cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist()
     
     min_distance = float('inf')
     nearest = None
     for color in color_list:
-        l, a, b = color.lab  # L*a*b*で距離を測る
-        distance = ((float(target_lab[0]) - float(l)) * 100 / 255) ** 2
+        lab_l, a, b = color.lab  # L*a*b*で距離を測る
+        distance = ((float(target_lab[0]) - float(lab_l)) * 100 / 255) ** 2
         distance += (float(target_lab[1]) - float(a)) ** 2
         distance += (float(target_lab[2]) - float(b)) ** 2
         if distance < min_distance:
@@ -393,7 +395,7 @@ def _nearest_color(target_rgb, color_list:List[Color]) -> Color:
     return nearest
 
 
-def _map_colors_to_palette(centers, palette)->List[Color]:
+def _map_colors_to_palette(centers, palette) -> list[Color]:
     mapped_colors = []
     for center in centers:
         nearest = _nearest_color(list(reversed(center)), palette)
@@ -401,7 +403,7 @@ def _map_colors_to_palette(centers, palette)->List[Color]:
     return mapped_colors
 
 
-def _count_color_pixels(grey)->List[int]:
+def _count_color_pixels(grey: np.ndarray) -> list[int]:
     color_counts = {}
     height, width = grey.shape[:2]
     for i in range(height):

@@ -82,9 +82,15 @@ def get_contrast_text_color(bgr_tuple: tuple[int, int, int]) -> tuple[int, int, 
 
 def build_color_code_grid(label_image: np.ndarray, mapped_colors: list) -> np.ndarray:
     """セル(y, x)ごとの色コード文字列を格納した (height, width) の配列を返す"""
+    # 有効な色インデックスだけ color_number を入れ、それ以外（例: 255）は空文字にする
     codes = np.array([str(c.color_number) for c in mapped_colors], dtype=object)
-    safe_idx = np.clip(label_image.astype(np.int32), 0, len(mapped_colors) - 1)
-    return codes[safe_idx]
+    # 出力グリッドを空文字で初期化
+    result = np.full(label_image.shape, "", dtype=object)
+    # 0 <= label < len(mapped_colors) のセルのみ有効
+    labels_int = label_image.astype(np.int32)
+    valid_mask = (labels_int >= 0) & (labels_int < len(mapped_colors))
+    result[valid_mask] = codes[labels_int[valid_mask]]
+    return result
 
 
 def create_color_code_csv(color_code_grid: np.ndarray) -> bytes:

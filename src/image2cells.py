@@ -284,7 +284,7 @@ class ImageToPixels:
         
         if csv_bytes is None:
             # デフォルトのCSV
-            with open("data/default_palette.csv", "rb") as f:
+            with open("data/merinorainbow.csv", "rb") as f:
                 csv_bytes = f.read()
 
         label_image, mapped_colors = self.create_label_image(src, csv_bytes)

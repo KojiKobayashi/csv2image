@@ -307,12 +307,13 @@ def _load_color_csv(file_path: Path) -> list:
         match = asin_pattern.search(text)
         return match.group(1).upper() if match else ""
 
+    error_message = "CSVに有効な色データが見つかりませんでした。ヘッダー行と、系統・色番・R・G・B の5列以上が必要です。"
     colors = []
     with open(file_path, 'r', encoding='utf-8') as f:
         reader = csv.reader(f)
         rows = list(reader)
         if not rows:
-            return colors
+            raise ValueError(error_message)
 
         header = [h.strip() for h in rows[0]]
         asin_idx = header.index("ASIN") if "ASIN" in header else -1
@@ -352,7 +353,7 @@ def _load_color_csv(file_path: Path) -> list:
             colors.append(color)
 
     if not colors:
-        raise ValueError("CSVに有効な色データが見つかりませんでした。ヘッダー行と、系統・色番・R・G・B の5列以上が必要です。")
+        raise ValueError(error_message)
     return colors
 
 

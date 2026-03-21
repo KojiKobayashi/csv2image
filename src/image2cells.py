@@ -1,10 +1,10 @@
 import cv2
+import io
 import numpy as np
 import sys
 import csv
 import re
 from typing import List
-from pathlib import Path
 
 import settings as cfg
 
@@ -222,8 +222,13 @@ class ImageToPixels:
 
     
     # ==================== Public Methods ====================
-    def create_label_image(self, src: np.ndarray, csv_path: Path)-> tuple[np.ndarray, list[Color]]:
-        """画像からcentersのインデックスの1channel画像を作成"""
+    def create_label_image(self, src: np.ndarray, csv_bytes: bytes) -> tuple[np.ndarray, list[Color]]:
+        """画像からcentersのインデックスの1channel画像を作成
+        
+        Args:
+            src: 入力画像（numpy配列）
+            csv_bytes: 毛糸カラーパレット CSV のバイト列
+        """
 
         if max(src.shape) > 2048:
             scale = 2048 / max(src.shape)
@@ -242,7 +247,7 @@ class ImageToPixels:
         if self._denoise:
             label_image = self._remove_noise(label_image)
 
-        palette = _load_color_csv(csv_path)
+        palette = _load_color_csv(io.BytesIO(csv_bytes))
         mapped_colors = _map_colors_to_palette(centers, palette)
 
         return label_image, mapped_colors
@@ -269,7 +274,7 @@ class ImageToPixels:
         return color_counts
 
 
-    def run(self, filename: str|None = None, src: np.ndarray|None = None, csv_path: Path|None = None)-> tuple[np.ndarray, list[ColorCount]]:
+    def run(self, filename: str|None = None, src: np.ndarray|None = None, csv_bytes: bytes|None = None)-> tuple[np.ndarray, list[ColorCount]]:
         if filename is not None:
             src = cv2.imread(filename)
             if src is None:
@@ -277,10 +282,10 @@ class ImageToPixels:
         elif src is None:
             raise ValueError("Either filename or src must be provided.")
         
-        if csv_path is None:
-            raise ValueError("CSV path must be provided.")
+        if csv_bytes is None:
+            raise ValueError("CSV bytes must be provided.")
 
-        label_image, mapped_colors = self.create_label_image(src, csv_path)
+        label_image, mapped_colors = self.create_label_image(src, csv_bytes)
         created_pixel_image = self.create_pixel_image(label_image, mapped_colors)
         color_counts = self.create_color_counts(label_image, mapped_colors)
         return created_pixel_image, color_counts
@@ -296,8 +301,8 @@ def display_image(image):
 
 # csv読み込み
 # 系統,色番,R,G,B,コメント
-# 一行目はヘッダー
-def _load_color_csv(file_path: Path) -> list:
+def _load_color_csv(csv_bytes_io: io.BytesIO) -> list:
+    """CSV を読み込む（BytesIO のみに対応）"""
     asin_pattern = re.compile(r"\b(B0[A-Z0-9]{8})\b", re.IGNORECASE)
 
     def normalize_asin(raw: str) -> str:
@@ -309,48 +314,51 @@ def _load_color_csv(file_path: Path) -> list:
 
     error_message = "CSVに有効な色データが見つかりませんでした。ヘッダー行と、系統・色番・R・G・B の5列以上が必要です。"
     colors = []
-    with open(file_path, 'r', encoding='utf-8') as f:
-        reader = csv.reader(f)
-        rows = list(reader)
-        if not rows:
-            raise ValueError(error_message)
+    
+    # BytesIO の場合（メモリ上のCSV）
+    csv_bytes_io.seek(0)
+    csv_text = csv_bytes_io.read().decode('utf-8')
+    reader = csv.reader(csv_text.splitlines())
+    rows = list(reader)
+    if not rows:
+        raise ValueError(error_message)
 
-        header = [h.strip() for h in rows[0]]
-        asin_idx = header.index("ASIN") if "ASIN" in header else -1
+    header = [h.strip() for h in rows[0]]
+    asin_idx = header.index("ASIN") if "ASIN" in header else -1
 
-        for parts in rows[1:]:
-            if len(parts) < 5:
-                continue
+    for parts in rows[1:]:
+        if len(parts) < 5:
+            continue
 
-            system = parts[0].strip()
-            color_number = parts[1].strip()
-            r = parts[2].strip()
-            g = parts[3].strip()
-            b = parts[4].strip()
+        system = parts[0].strip()
+        color_number = parts[1].strip()
+        r = parts[2].strip()
+        g = parts[3].strip()
+        b = parts[4].strip()
 
-            if not (system and color_number and r and g and b):
-                continue
+        if not (system and color_number and r and g and b):
+            continue
 
-            try:
-                rgb = [int(r), int(g), int(b)]
-            except ValueError:
-                continue
+        try:
+            rgb = [int(r), int(g), int(b)]
+        except ValueError:
+            continue
 
-            asin = ""
-            if asin_idx >= 0 and asin_idx < len(parts):
-                asin = normalize_asin(parts[asin_idx])
-            if not asin:
-                for part in parts[5:]:
-                    asin = normalize_asin(part)
-                    if asin:
-                        break
+        asin = ""
+        if asin_idx >= 0 and asin_idx < len(parts):
+            asin = normalize_asin(parts[asin_idx])
+        if not asin:
+            for part in parts[5:]:
+                asin = normalize_asin(part)
+                if asin:
+                    break
 
-            # L*a*b*に変換
-            rgb_mat = np.array([[rgb]], dtype=np.uint8)
-            lab = cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist()
+        # L*a*b*に変換
+        rgb_mat = np.array([[rgb]], dtype=np.uint8)
+        lab = cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist()
 
-            color = Color(system, color_number, rgb, lab, asin)
-            colors.append(color)
+        color = Color(system, color_number, rgb, lab, asin)
+        colors.append(color)
 
     if not colors:
         raise ValueError(error_message)

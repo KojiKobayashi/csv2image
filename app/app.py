@@ -103,6 +103,8 @@ def build_color_code_cache_key(
 ) -> str:
     """色コード画像/CSVのキャッシュキーを生成する"""
     hasher = hashlib.blake2b(digest_size=16)
+    # label_image のバイト列だけでなく shape / dtype もキーに含めて衝突を防ぐ
+    hasher.update(str((label_image.shape, str(label_image.dtype))).encode("utf-8"))
     hasher.update(label_image.tobytes())
 
     for color in mapped_colors:
@@ -433,8 +435,8 @@ def upload_image_section():
     return uploaded_file
 
 
-def upload_csv_section() -> Path:
-    """毛糸CSVアップロードUI。使用するCSVの Path を返す"""
+def upload_csv_section() -> bytes:
+    """毛糸CSVアップロードUI。使用するCSVのバイト列を返す"""
     st.sidebar.header("🧶 Step 2: 毛糸CSVを選択（任意）")
     st.sidebar.caption(
         "デフォルトはメリノレインボーCSVを使用します。"
@@ -447,26 +449,17 @@ def upload_csv_section() -> Path:
     )
 
     if uploaded_csv is not None:
-        _ensure_tmp_dir()
-        if "csv_upload_session_id" not in st.session_state:
-            st.session_state.csv_upload_session_id = uuid.uuid4().hex[:8]
-
+        # アップロードされたファイルをバイト列で返す
         csv_bytes = uploaded_csv.read()
-        content_hash = hashlib.blake2b(csv_bytes, digest_size=8).hexdigest()
-        tmp_csv_path = Path(
-            f"./tmp/uploaded_color_{st.session_state.csv_upload_session_id}_{content_hash}.csv"
-        )
-
-        # セッションごとの一時ファイルを作成（既存なら再利用）
-        if not tmp_csv_path.exists():
-            tmp_csv_path.write_bytes(csv_bytes)
-
-        st.session_state.uploaded_csv_path = str(tmp_csv_path)
+        st.session_state.uploaded_csv_bytes = csv_bytes
+        st.session_state.uploaded_csv_name = uploaded_csv.name
         st.sidebar.success(f"📄 使用中: {uploaded_csv.name}")
-        return tmp_csv_path
+        return csv_bytes
     else:
+        # デフォルトCSVをファイルから読み込んでバイト列で返す
+        csv_bytes = Path(MERINO_RAINBOW_CSV).read_bytes()
         st.sidebar.caption("📄 使用中: merinorainbow.csv（デフォルト）")
-        return MERINO_RAINBOW_CSV
+        return csv_bytes
 
 
 def render_roi_selection_ui(src_shape: tuple[int, int, int], display_image:np.ndarray, display_scale:float):
@@ -1185,8 +1178,9 @@ section[data-testid="stSidebar"] .st-key-exit_app_button {
 
                     st.session_state.processor = processor
 
-                    # 処理実行
-                    label_image, mapped_colors = processor.create_label_image(process_image, csv_path)
+                    # 処理実行（csv_path は bytes）
+                    label_image, mapped_colors = processor.create_label_image(
+                        process_image, csv_path)
 
                     st.session_state.label_image = label_image
                     st.session_state.original_label_image = label_image.copy()

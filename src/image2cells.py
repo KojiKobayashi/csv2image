@@ -319,7 +319,26 @@ def _load_color_csv(csv_bytes_io: io.BytesIO) -> list:
     
     # BytesIO の場合（メモリ上のCSV）
     csv_bytes_io.seek(0)
-    csv_text = csv_bytes_io.read().decode('utf-8-sig')
+    raw = csv_bytes_io.read()
+    
+    # 複数エンコードで自動判別（フォールバック）
+    csv_text = None
+    encoding_candidates = ["utf-8-sig", "cp932", "shift_jis", "utf-16"]
+    last_error = None
+    
+    for encoding in encoding_candidates:
+        try:
+            csv_text = raw.decode(encoding)
+            break
+        except UnicodeDecodeError as e:
+            last_error = e
+    
+    if csv_text is None:
+        raise ValueError(
+            "CSVファイルの文字コードを判別できませんでした。\n"
+            "以下の形式で保存してください: UTF-8 (BOM付き) または CP932 (Windows ANSI)"
+        ) from last_error
+    
     csv_stream = io.StringIO(csv_text)
     reader = csv.reader(csv_stream)
     rows = list(reader)
@@ -367,7 +386,7 @@ def _load_color_csv(csv_bytes_io: io.BytesIO) -> list:
 
         # L*a*b*に変換
         rgb_mat = np.array([[rgb]], dtype=np.uint8)
-        lab = tuple(cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist())
+        lab = cv2.cvtColor(rgb_mat, cv2.COLOR_RGB2LAB)[0][0].tolist()
 
         color = Color(system, color_number, rgb, lab, asin)
         colors.append(color)
